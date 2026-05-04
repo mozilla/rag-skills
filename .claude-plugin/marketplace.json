@@ -5,7 +5,7 @@
     "email": "lvargas@mozilla.com"
   },
   "metadata": {
-    "description": "Claude Code skills that orchestrate question → retrieval → BigQuery semantic layer → structured answer. Customer Experience first, extensible to any domain.",
+    "description": "Skills that orchestrate question → retrieval → BigQuery semantic layer → structured answer. Customer Experience first, extensible to any domain.",
     "version": "1.0.0",
     "repository": "https://github.com/mozilla/rag-skills",
     "changelog": "https://github.com/mozilla/rag-skills/blob/main/CHANGELOG.md"

@@ -67,7 +67,11 @@ def embed(question: str, token: str, project: str) -> list[float]:
     try:
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read())
-            return data["predictions"][0]["embeddings"]["values"]
+            values = data["predictions"][0]["embeddings"]["values"]
+        if not values or any(v is None for v in values):
+            print("Embedding API returned null or empty values.", file=sys.stderr)
+            sys.exit(1)
+        return values
     except urllib.error.HTTPError as e:
         print(f"API error {e.code}: {e.read().decode()}", file=sys.stderr)
         sys.exit(1)

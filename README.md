@@ -1,6 +1,6 @@
 # RAG Orchestration Skills
 
-Claude Code skills that orchestrate the full RAG pipeline: question → retrieval → BigQuery semantic layer → structured answer.
+Skills that orchestrate the full RAG pipeline: question → retrieval → BigQuery semantic layer → structured answer.
 
 The semantic layer is a set of BigQuery tables enriched with LLM-generated categories, topics, embeddings, and sentiment scores. Skills in this repo embed a user's question, retrieve the most relevant context, and synthesize a grounded answer — no hallucination, sources cited.
 

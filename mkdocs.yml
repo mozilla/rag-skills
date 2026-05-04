@@ -1,5 +1,5 @@
 site_name: RAG Orchestration Skills
-site_description: Claude Code skills that orchestrate question → retrieval → BigQuery semantic layer → structured answer
+site_description: Skills that orchestrate question → retrieval → BigQuery semantic layer → structured answer
 site_author: Lucia Vargas
 site_url: https://mozilla.github.io/rag-skills
 
@@ -61,7 +61,6 @@ nav:
   - Home: index.md
   - Getting Started:
     - Installation: getting-started/installation.md
-    - Local Development: getting-started/local-development.md
   - Skills:
     - Overview: skills/overview.md
 

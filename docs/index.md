@@ -1,6 +1,6 @@
 # RAG Orchestration Skills
 
-Claude Code skills that orchestrate the full RAG pipeline: question → retrieval → BigQuery semantic layer → structured answer.
+Skills that orchestrate the full RAG pipeline: question → retrieval → BigQuery semantic layer → structured answer.
 
 ## What this is
 
