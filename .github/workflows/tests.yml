@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,4 +14,45 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pytest
-      - run: python -m pytest tests/ -v
+      - run: python -m pytest tests/test_embed.py tests/test_vector_search.py -v
+
+  agent-evaluation:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if agent was modified
+        id: agent-changed
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "agents/cx-rag-researcher.md"; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify evaluation report exists and passed
+        if: steps.agent-changed.outputs.changed == 'true'
+        run: |
+          if [ ! -f tests/golden_set/report.json ]; then
+            echo "ERROR: agents/cx-rag-researcher.md was modified but tests/golden_set/report.json is missing."
+            echo "Run the golden set evaluation locally before opening this PR:"
+            echo "  python tests/golden_set/run_agent.py"
+            echo "  python tests/golden_set/evaluate.py"
+            exit 1
+          fi
+          python3 -c "
+          import json, sys
+          report = json.load(open('tests/golden_set/report.json'))
+          failures = [q for q in report if q['status'] == 'FAIL']
+          if failures:
+              print('Golden set evaluation has failures:')
+              for q in failures:
+                  print(f'  Q{q[\"id\"]}: {q[\"question\"]}')
+                  for k, v in q['evaluation'].items():
+                      if v['result'] == 'FAIL':
+                          print(f'    - {k}: {v[\"reason\"]}')
+              sys.exit(1)
+          print(f'All {len(report)} questions passed.')
+          "

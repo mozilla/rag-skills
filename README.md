@@ -35,6 +35,35 @@ gcloud config set project <project-name-from-DE>
 ./scripts/dev-setup.sh --clean  # remove symlinks
 ```
 
+## Running Tests
+
+Unit tests run automatically on every PR via GitHub Actions. To run them locally:
+
+```bash
+python -m pytest tests/test_embed.py tests/test_vector_search.py -v
+```
+
+## Contributing Changes to the cx-rag-researcher Agent
+
+If you modify `agents/cx-rag-researcher.md`, you must run the golden set evaluation before opening a PR.
+
+**Step 1 — Run all test questions through the agent:**
+```bash
+python tests/golden_set/run_agent.py
+```
+
+**Step 2 — Evaluate the responses with the LLM judge:**
+```bash
+python tests/golden_set/evaluate.py
+```
+
+**Step 3 — Commit the report with your PR:**
+```bash
+git add tests/golden_set/report.json
+```
+
+GitHub Actions will verify the report exists and all questions passed. PRs with failures will be blocked.
+
 ## Adding a New Domain
 
 1. Create `skills/<domain>-rag/SKILL.md` with frontmatter (`name`, `description`) and orchestration instructions.

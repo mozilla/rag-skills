@@ -2,3 +2,5 @@
 .idea/
 __pycache__/
 *.pyc
+.venv/
+tests/golden_set/responses/
