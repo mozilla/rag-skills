@@ -65,7 +65,7 @@ See `references/kitsune_schema.md`, `references/zendesk_schema.md`, and `referen
 | Group Zendesk tickets by topic | `category_generated` | No source topic column in Zendesk — only option |
 | Group KB articles by topic | `category_generated` | No source topic column in KB — only option |
 | Compare topic distribution across Kitsune + Zendesk + KB | `category_generated` | Only grouping field present in all three tables |
-| Drill into Kitsune topic hierarchy | `tier1_topic` → `tier2_topic` → `tier3_topic` | Source columns, hierarchical SUMO taxonomy. Example: `SELECT tier2_topic, COUNT(*) AS count FROM kitsune_retrieval_index WHERE tier1_topic = 'Firefox' GROUP BY tier2_topic ORDER BY count DESC` |
+| Drill into Kitsune topic hierarchy | `tier1_topic` → `tier2_topic` → `tier3_topic` | Source columns, hierarchical SUMO taxonomy. Example: `SELECT tier2_topic, COUNT(*) AS count FROM mozdata.customer_experience.kitsune_retrieval_index WHERE tier1_topic = 'Firefox' GROUP BY tier2_topic ORDER BY count DESC` |
 
 ### Filtering for specific content
 
@@ -165,7 +165,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
 
 Stop here — skip Steps 3 and 4, go directly to Step 5.
 
-**Dataset:** `{project}.customer_experience_derived`
+**Dataset:** `mozdata.customer_experience`
 **Tables:** `kitsune_retrieval_index`, `zendesk_retrieval_index`, `knowledge_base_retrieval_index`
 **Date columns:** Kitsune → `creation_date` (DATE); Zendesk → `creation_date` (TIMESTAMP, use `DATE(...)`); KB → none.
 
@@ -186,7 +186,7 @@ Use this when the question asks for ranked themes + explanation (e.g. "top drive
 ```sql
 -- Kitsune: top topics by negative post count
 SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
   AND LOWER(product) LIKE LOWER('%<product>%')
   AND sentiment_score < 0
@@ -194,7 +194,7 @@ GROUP BY topic ORDER BY count DESC LIMIT 5
 
 -- Zendesk: top categories by ticket count
 SELECT category_generated, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.zendesk_retrieval_index`
+FROM `mozdata.customer_experience.zendesk_retrieval_index`
 WHERE DATE(creation_date) BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
   AND LOWER(product) LIKE LOWER('%<product>%')
 GROUP BY category_generated ORDER BY count DESC LIMIT 5
@@ -217,7 +217,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
 
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.<table> \
+  --table mozdata.customer_experience.<table> \
   --columns <source-specific columns from table above> \
   --label "<topic/category>" \
   --date-column creation_date \
@@ -235,7 +235,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
 
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.knowledge_base_retrieval_index \
+  --table mozdata.customer_experience.knowledge_base_retrieval_index \
   --columns title,summary_generated,category_generated,slug,product \
   --label "Knowledge Base"
 ```
@@ -261,7 +261,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
 
 `{project}` is replaced automatically with the active GCP project. Use this and **stop here** — skip Steps 3 and 4, go directly to Step 5 to synthesize and present the results.
 
-**Dataset:** `{project}.customer_experience_derived`
+**Dataset:** `mozdata.customer_experience`
 **Tables:** `kitsune_retrieval_index`, `zendesk_retrieval_index`, `knowledge_base_retrieval_index`
 
 **Date filter columns:**
@@ -273,25 +273,25 @@ Common patterns:
 ```sql
 -- Top topics by volume (Kitsune)
 SELECT topic, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY count DESC LIMIT 10
 
 -- Top categories by volume (Zendesk)
 SELECT category_generated, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.zendesk_retrieval_index`
+FROM `mozdata.customer_experience.zendesk_retrieval_index`
 WHERE DATE(creation_date) BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY category_generated ORDER BY count DESC LIMIT 10
 
 -- Average sentiment by topic (Kitsune only)
 SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY avg_sentiment ASC LIMIT 10
 
 -- Filter by theme using topics_generated (array column — must use UNNEST)
 SELECT title, content, topic, sentiment_score
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
   AND EXISTS (
     SELECT 1 FROM UNNEST(topics_generated) t
@@ -300,7 +300,7 @@ WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 
 -- Filter by named entity using entities_generated (array column — must use UNNEST)
 SELECT title, content, topic, sentiment_score
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
   AND EXISTS (
     SELECT 1 FROM UNNEST(entities_generated) e
@@ -318,7 +318,7 @@ Call the `vector-search` skill **once per selected source**, passing the table, 
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.kitsune_retrieval_index \
+  --table mozdata.customer_experience.kitsune_retrieval_index \
   --columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic \
   --label "SUMO / Kitsune" \
   --date-column creation_date \
@@ -330,7 +330,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.zendesk_retrieval_index \
+  --table mozdata.customer_experience.zendesk_retrieval_index \
   --columns title,content,summary_generated,category_generated,sentiment_score,product,star_rating,recency_score \
   --label "Zendesk" \
   --date-column creation_date \
@@ -342,7 +342,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.knowledge_base_retrieval_index \
+  --table mozdata.customer_experience.knowledge_base_retrieval_index \
   --columns title,summary_generated,category_generated,slug,product \
   --label "Knowledge Base"
 ```
@@ -426,7 +426,7 @@ User: *"What were the top 5 topics on Kitsune in March 2026?"*
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
   --sql "SELECT topic, COUNT(*) AS count
-         FROM \`{project}.customer_experience_derived.kitsune_retrieval_index\`
+         FROM \`mozdata.customer_experience.kitsune_retrieval_index\`
          WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
          GROUP BY topic ORDER BY count DESC LIMIT 5"
 ```
@@ -441,7 +441,7 @@ User: *"What were the top 3 drivers of negative sentiment about Fenix in March 2
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
   --sql "SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-         FROM \`{project}.customer_experience_derived.kitsune_retrieval_index\`
+         FROM \`mozdata.customer_experience.kitsune_retrieval_index\`
          WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
            AND LOWER(product) LIKE LOWER('%fenix%')
            AND sentiment_score < 0
@@ -457,7 +457,7 @@ If top-5 results feel thin or off-topic, increase coverage by adding `--top-k 10
 ```bash
 python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.kitsune_retrieval_index \
+  --table mozdata.customer_experience.kitsune_retrieval_index \
   --columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic \
   --label "SUMO / Kitsune" \
   --date-column creation_date \

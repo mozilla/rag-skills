@@ -1,6 +1,6 @@
 # knowledge_base_retrieval_index Schema Reference
 
-**Table:** `<project>.customer_experience_derived.knowledge_base_retrieval_index`
+**Table:** `mozdata.customer_experience.knowledge_base_retrieval_index`
 **Purpose:** Semantic search index over Mozilla Knowledge Base articles, pre-embedded for vector similarity queries.
 
 ## Columns used by the orchestrator
@@ -64,7 +64,7 @@ SELECT base.title, base.summary_generated, base.category_generated,
        base.slug,
        distance, 'knowledge_base' AS _source
 FROM VECTOR_SEARCH(
-    TABLE `<project>.customer_experience_derived.knowledge_base_retrieval_index`,
+    TABLE `mozdata.customer_experience.knowledge_base_retrieval_index`,
     'embedding',
     (SELECT <query_embedding> AS embedding),
     top_k => 5,

@@ -1,6 +1,6 @@
 # zendesk_retrieval_index Schema Reference
 
-**Table:** `<project>.customer_experience_derived.zendesk_retrieval_index`
+**Table:** `mozdata.customer_experience.zendesk_retrieval_index`
 **Purpose:** Semantic search index over Zendesk support tickets, pre-embedded for vector similarity queries.
 
 ## Columns used by the orchestrator
@@ -61,7 +61,7 @@ SELECT base.title, base.summary_generated, base.category_generated,
        base.sentiment_score, base.product, base.star_rating, base.recency_score,
        distance, 'zendesk' AS _source
 FROM VECTOR_SEARCH(
-    TABLE `<project>.customer_experience_derived.zendesk_retrieval_index`,
+    TABLE `mozdata.customer_experience.zendesk_retrieval_index`,
     'embedding',
     (SELECT <query_embedding> AS embedding),
     top_k => 5,
