@@ -10,7 +10,7 @@ Embeds a text question using `gemini-embedding-001` and returns the resulting ve
 ## Usage
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py --question "<your question>"
+python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/embed/scripts/embed.py --question "<your question>"
 ```
 
 Output is a JSON array of 3072 floats printed to stdout:

@@ -96,6 +96,25 @@ Before writing any query, verify the required signal exists in the table. If it 
 
 **Never fabricate or infer data. All answers must be grounded in what the retrieved documents actually contain.**
 
+**Grounding contract — non-negotiable:**
+
+1. **If any data step errors** (non-zero exit, authentication message, or a `CLAUDE_PLUGIN_ROOT` guard message), STOP. Report the exact failure to the user and the remediation (usually `gcloud auth application-default login` or invoking via the Skill tool). Do not continue, and do not answer from prior knowledge.
+2. **If a data step returns no rows** ("No results." / "No results found."), STOP for that source and say plainly that no matching data was found. Suggest broadening the date range or removing filters. Never fill the gap with invented content.
+3. **Every factual claim in the final answer must trace to a retrieved row.** When stating a concern, theme, count, or article, it must come from the SQL output or a retrieved document — never from general knowledge about Firefox or Mozilla.
+4. **If all selected sources return nothing**, the only valid answer is to say so. An empty result is a real, reportable outcome — not a prompt to improvise.
+
+### How to run a data step
+
+This agent does its work through three skills. **Invoke each by name via the Skill tool** — do not paste raw shell commands. Pass the arguments described below; the skill itself runs the underlying script.
+
+| Skill | What you pass | What you get back |
+|-------|---------------|-------------------|
+| `embed` | `--question "<text>"` (redirect stdout to `/tmp/cx_embedding.json`) | a 3072-float vector written to the file |
+| `query` | `--sql "<SQL with {project} placeholder>"` | a formatted result table on stdout |
+| `vector-search` | `--embedding-file`, `--table`, `--columns`, `--label`, optional `--date-column/--s/--e/--filter/--top-k` | a formatted context block on stdout |
+
+The exact command template for each lives in that skill's `SKILL.md`. If a skill cannot be invoked (e.g. running outside the plugin), fall back to its `SKILL.md` Usage command directly — the path guard will surface a clear error if the environment is misconfigured.
+
 ### Step 1: Determine sources and clarify filters
 
 #### 1a. Select sources based on question intent
@@ -148,20 +167,13 @@ There are three modes. Pick based on what the answer requires:
 
 #### Step 2a: Vector search only
 
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
-  --question "<user question>" \
-  > /tmp/cx_embedding.json
-```
+Invoke the **embed** skill with `--question "<user question>"`, capturing its stdout to `/tmp/cx_embedding.json`.
 
 Then continue to Step 3.
 
 #### Step 2b: SQL only
 
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
-  --sql "<SQL using {project} as placeholder>"
-```
+Invoke the **query** skill with `--sql "<SQL using {project} as placeholder>"`.
 
 Stop here — skip Steps 3 and 4, go directly to Step 5.
 
@@ -209,55 +221,27 @@ GROUP BY category_generated ORDER BY count DESC LIMIT 5
 | `topic` (Kitsune) | `--filter "topic:<value>"` | `title,content,answer_content,summary_generated,sentiment_score,topic` |
 | `category_generated` (Zendesk) | `--filter "category_generated:<value>"` | `title,content,summary_generated,category_generated,sentiment_score,product,star_rating` |
 
-```bash
-# Repeat for each top topic/category (max 3)
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
-  --question "Why are <product> users negative about <topic/category>?" \
-  > /tmp/cx_embedding.json
+Repeat for each top topic/category (max 3):
 
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.<table> \
-  --columns <source-specific columns from table above> \
-  --label "<topic/category>" \
-  --date-column creation_date \
-  --s YYYY-MM-DD --e YYYY-MM-DD \
-  --filter "product:<product>" \
-  --filter "<grouping_column>:<value>"
-```
+1. Invoke the **embed** skill with `--question "Why are <product> users negative about <topic/category>?"`, capturing stdout to `/tmp/cx_embedding.json`.
+2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.<table>`, `--columns <source-specific columns from table above>`, `--label "<topic/category>"`, `--date-column creation_date`, `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product>"`, and `--filter "<grouping_column>:<value>"`.
 
 **2c-iii. KB vector search (comparison questions only)** — if the question compares user experience to official guidance, also search the KB using the original question embedding:
 
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
-  --question "<original user question>" \
-  > /tmp/cx_embedding.json
-
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.knowledge_base_retrieval_index \
-  --columns title,summary_generated,category_generated,slug,product \
-  --label "Knowledge Base"
-```
+1. Invoke the **embed** skill with `--question "<original user question>"`, capturing stdout to `/tmp/cx_embedding.json`.
+2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
 
 Then continue to Step 4. In synthesis, structure the answer in two parts: what users are experiencing (from SQL + Kitsune/Zendesk vector search) vs. what Mozilla recommends (from KB). Flag gaps where KB doesn't address the top user issues.
 
 #### Step 2a: Embed the question (vector search mode)
 
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
-  --question "<user question here>" \
-  > /tmp/cx_embedding.json
-```
+Invoke the **embed** skill with `--question "<user question here>"`, capturing its stdout to `/tmp/cx_embedding.json`.
 
 Then continue to Step 3.
 
 #### Step 2b: Run a direct SQL query (count / aggregation mode)
 
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
-  --sql "<SQL query using {project} as project placeholder>"
-```
+Invoke the **query** skill with `--sql "<SQL query using {project} as project placeholder>"`.
 
 `{project}` is replaced automatically with the active GCP project. Use this and **stop here** — skip Steps 3 and 4, go directly to Step 5 to synthesize and present the results.
 
@@ -314,38 +298,11 @@ You may combine both modes in one response — run SQL first for counts, then ve
 
 Call the `vector-search` skill **once per selected source**, passing the table, columns, label, and any filters explicitly:
 
-**Kitsune**
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.kitsune_retrieval_index \
-  --columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic \
-  --label "SUMO / Kitsune" \
-  --date-column creation_date \
-  [--s YYYY-MM-DD] [--e YYYY-MM-DD] \
-  [--filter "product:<product name>"] [--filter "locale:<locale code>"]
-```
+**Kitsune** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
-**Zendesk**
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.zendesk_retrieval_index \
-  --columns title,content,summary_generated,category_generated,sentiment_score,product,star_rating,recency_score \
-  --label "Zendesk" \
-  --date-column creation_date \
-  [--s YYYY-MM-DD] [--e YYYY-MM-DD] \
-  [--filter "product:<product name>"] [--filter "locale:<locale code>"]
-```
+**Zendesk** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.zendesk_retrieval_index`, `--columns title,content,summary_generated,category_generated,sentiment_score,product,star_rating,recency_score`, `--label "Zendesk"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
-**Knowledge Base** (no date filter — no date column on this table)
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.knowledge_base_retrieval_index \
-  --columns title,summary_generated,category_generated,slug,product \
-  --label "Knowledge Base"
-```
+**Knowledge Base** (no date filter — no date column on this table) — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
 
 Collect the output from each call — these are the context blocks for synthesis.
 
@@ -422,13 +379,12 @@ User: *"How does what users report about sync compare to what the Knowledge Base
 User: *"What were the top 5 topics on Kitsune in March 2026?"*
 
 1. Intent: count/ranking → SQL only (Step 2b)
-2. Run:
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
-  --sql "SELECT topic, COUNT(*) AS count
-         FROM \`{project}.customer_experience_derived.kitsune_retrieval_index\`
-         WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
-         GROUP BY topic ORDER BY count DESC LIMIT 5"
+2. Invoke the **query** skill, passing this SQL as `--sql` (use `{project}` as the project placeholder):
+```sql
+SELECT topic, COUNT(*) AS count
+FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
+GROUP BY topic ORDER BY count DESC LIMIT 5
 ```
 3. Report the ranked list. If the user wants to understand what a topic is *about*, follow up with vector search on that topic.
 
@@ -437,32 +393,21 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
 User: *"What were the top 3 drivers of negative sentiment about Fenix in March 2026?"*
 
 1. Intent: ranked themes + explanation → Hybrid (Step 2c)
-2. **SQL** — find top topics with the most negative posts:
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
-  --sql "SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-         FROM \`{project}.customer_experience_derived.kitsune_retrieval_index\`
-         WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
-           AND LOWER(product) LIKE LOWER('%fenix%')
-           AND sentiment_score < 0
-         GROUP BY topic ORDER BY count DESC LIMIT 3"
+2. **SQL** — find top topics with the most negative posts. Invoke the **query** skill, passing this SQL as `--sql` (use `{project}` as the project placeholder):
+```sql
+SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
+FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
+  AND LOWER(product) LIKE LOWER('%fenix%')
+  AND sentiment_score < 0
+GROUP BY topic ORDER BY count DESC LIMIT 3
 ```
 3. **Vector search** — for each of the 3 topics returned, embed a targeted question and search with a topic filter to get what users actually wrote (repeat per topic).
 4. Synthesize: lead with volume and avg sentiment from SQL, then explain the actual driver from the thread content.
 
 ### Workflow 7: Deeper search
 
-If top-5 results feel thin or off-topic, increase coverage by adding `--top-k 10` to any of the Step 3 commands:
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
-  --embedding-file /tmp/cx_embedding.json \
-  --table customer_experience_derived.kitsune_retrieval_index \
-  --columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic \
-  --label "SUMO / Kitsune" \
-  --date-column creation_date \
-  --top-k 10
-```
+If top-5 results feel thin or off-topic, increase coverage by adding `--top-k 10` to any of the Step 3 vector-search invocations, e.g. invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and `--top-k 10`.
 
 ## Troubleshooting
 
@@ -494,3 +439,5 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
 | `embed` | Embeds the user question into a vector — first step for vector search mode |
 | `vector-search` | Queries one BigQuery source with the embedding — called once per selected source |
 | `query` | Runs a direct SQL query for counts, rankings, and aggregations — use instead of embed+vector-search when the answer is a number or ranked list |
+
+> Invoke these by name via the Skill tool. Each skill's `SKILL.md` holds the canonical command and argument reference.

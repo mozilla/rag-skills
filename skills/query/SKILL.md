@@ -10,7 +10,7 @@ Runs a direct SQL query against BigQuery and prints results as a formatted text 
 ## Usage
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
+python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/query/scripts/query.py \
   --sql "<SQL query using {project} as project placeholder>"
 ```
 

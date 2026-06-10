@@ -21,6 +21,7 @@
       ],
       "skills": [
         "./skills/embed",
+        "./skills/query",
         "./skills/vector-search"
       ]
     }
