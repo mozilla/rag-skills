@@ -29,14 +29,14 @@ The `kitsune_retrieval_index` table contains content from SUMO forum posts — q
 | Limitation | Impact |
 |-----------|--------|
 | Not real-time | The index is periodically refreshed; very recent posts may not be included |
-| Sentiment is LLM-generated | `sentiment_score` reflects the model's read of the content, not a human label |
+| Sentiment is LLM-generated | `question_sentiment_score` reflects the model's read of the content, not a human label |
 | Categories/topics are LLM-generated | May occasionally misclassify edge-case posts |
 | Skewed toward problems | Users tend to post when something is wrong, so the index over-represents negative experiences |
 | English-dominant | Non-English content is present but may retrieve less reliably for non-English questions |
 
 ## Interpreting sentiment scores
 
-The `sentiment_score` field ranges from -1 to 1:
+The `question_sentiment_score` field ranges from -1 to 1:
 - **-1.0 to -0.3**: Clearly negative — user is frustrated or reporting a breaking problem
 - **-0.3 to 0.3**: Neutral — informational, mixed, or ambiguous
 - **0.3 to 1.0**: Positive — user is happy, praising a feature, or reporting resolution

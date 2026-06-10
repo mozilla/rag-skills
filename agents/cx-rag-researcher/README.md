@@ -11,9 +11,9 @@ Before using this agent you need:
    ```bash
    gcloud auth application-default login
    ```
-3. **GCP project set** to the project name provided by your DE team:
+3. **GCP project set** to mozdata:
    ```bash
-   gcloud config set project <project-provided-by-DE>
+   gcloud config set project mozdata
    ```
 
 ## Installation
