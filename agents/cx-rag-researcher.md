@@ -110,7 +110,7 @@ This agent does its work through three skills. **Invoke each by name via the Ski
 | Skill | What you pass | What you get back |
 |-------|---------------|-------------------|
 | `embed` | `--question "<text>"` (redirect stdout to `/tmp/cx_embedding.json`) | a 3072-float vector written to the file |
-| `query` | `--sql "<SQL with {project} placeholder>"` | a formatted result table on stdout |
+| `query` | `--sql "<SQL querying mozdata.customer_experience.*>"` | a formatted result table on stdout |
 | `vector-search` | `--embedding-file`, `--table`, `--columns`, `--label`, optional `--date-column/--s/--e/--filter/--top-k` | a formatted context block on stdout |
 
 The exact command template for each lives in that skill's `SKILL.md`. If a skill cannot be invoked (e.g. running outside the plugin), fall back to its `SKILL.md` Usage command directly — the path guard will surface a clear error if the environment is misconfigured.
@@ -173,7 +173,7 @@ Then continue to Step 3.
 
 #### Step 2b: SQL only
 
-Invoke the **query** skill with `--sql "<SQL using {project} as placeholder>"`.
+Invoke the **query** skill with `--sql "<SQL querying mozdata.customer_experience.*>"`.
 
 Stop here — skip Steps 3 and 4, go directly to Step 5.
 
@@ -224,12 +224,12 @@ GROUP BY category_generated ORDER BY count DESC LIMIT 5
 Repeat for each top topic/category (max 3):
 
 1. Invoke the **embed** skill with `--question "Why are <product> users negative about <topic/category>?"`, capturing stdout to `/tmp/cx_embedding.json`.
-2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.<table>`, `--columns <source-specific columns from table above>`, `--label "<topic/category>"`, `--date-column creation_date`, `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product>"`, and `--filter "<grouping_column>:<value>"`.
+2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.<table>`, `--columns <source-specific columns from table above>`, `--label "<topic/category>"`, `--date-column creation_date`, `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product>"`, and `--filter "<grouping_column>:<value>"`.
 
 **2c-iii. KB vector search (comparison questions only)** — if the question compares user experience to official guidance, also search the KB using the original question embedding:
 
 1. Invoke the **embed** skill with `--question "<original user question>"`, capturing stdout to `/tmp/cx_embedding.json`.
-2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
+2. Invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
 
 Then continue to Step 4. In synthesis, structure the answer in two parts: what users are experiencing (from SQL + Kitsune/Zendesk vector search) vs. what Mozilla recommends (from KB). Flag gaps where KB doesn't address the top user issues.
 
@@ -241,9 +241,9 @@ Then continue to Step 3.
 
 #### Step 2b: Run a direct SQL query (count / aggregation mode)
 
-Invoke the **query** skill with `--sql "<SQL query using {project} as project placeholder>"`.
+Invoke the **query** skill with `--sql "<SQL querying mozdata.customer_experience.*>"`.
 
-`{project}` is replaced automatically with the active GCP project. Use this and **stop here** — skip Steps 3 and 4, go directly to Step 5 to synthesize and present the results.
+Tables live in `mozdata.customer_experience`. Use this and **stop here** — skip Steps 3 and 4, go directly to Step 5 to synthesize and present the results.
 
 **Dataset:** `mozdata.customer_experience`
 **Tables:** `kitsune_retrieval_index`, `zendesk_retrieval_index`, `knowledge_base_retrieval_index`
@@ -298,11 +298,11 @@ You may combine both modes in one response — run SQL first for counts, then ve
 
 Call the `vector-search` skill **once per selected source**, passing the table, columns, label, and any filters explicitly:
 
-**Kitsune** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
+**Kitsune** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
-**Zendesk** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.zendesk_retrieval_index`, `--columns title,content,summary_generated,category_generated,sentiment_score,product,star_rating,recency_score`, `--label "Zendesk"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
+**Zendesk** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.zendesk_retrieval_index`, `--columns title,content,summary_generated,category_generated,sentiment_score,product,star_rating,recency_score`, `--label "Zendesk"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
-**Knowledge Base** (no date filter — no date column on this table) — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
+**Knowledge Base** (no date filter — no date column on this table) — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.knowledge_base_retrieval_index`, `--columns title,summary_generated,category_generated,slug,product`, and `--label "Knowledge Base"`.
 
 Collect the output from each call — these are the context blocks for synthesis.
 
@@ -379,10 +379,10 @@ User: *"How does what users report about sync compare to what the Knowledge Base
 User: *"What were the top 5 topics on Kitsune in March 2026?"*
 
 1. Intent: count/ranking → SQL only (Step 2b)
-2. Invoke the **query** skill, passing this SQL as `--sql` (use `{project}` as the project placeholder):
+2. Invoke the **query** skill, passing this SQL as `--sql` (tables live in `mozdata.customer_experience`):
 ```sql
 SELECT topic, COUNT(*) AS count
-FROM `mozdata.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
 GROUP BY topic ORDER BY count DESC LIMIT 5
 ```
@@ -393,10 +393,10 @@ GROUP BY topic ORDER BY count DESC LIMIT 5
 User: *"What were the top 3 drivers of negative sentiment about Fenix in March 2026?"*
 
 1. Intent: ranked themes + explanation → Hybrid (Step 2c)
-2. **SQL** — find top topics with the most negative posts. Invoke the **query** skill, passing this SQL as `--sql` (use `{project}` as the project placeholder):
+2. **SQL** — find top topics with the most negative posts. Invoke the **query** skill, passing this SQL as `--sql` (tables live in `mozdata.customer_experience`):
 ```sql
 SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-FROM `mozdata.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
   AND LOWER(product) LIKE LOWER('%fenix%')
   AND sentiment_score < 0
@@ -407,7 +407,7 @@ GROUP BY topic ORDER BY count DESC LIMIT 3
 
 ### Workflow 7: Deeper search
 
-If top-5 results feel thin or off-topic, increase coverage by adding `--top-k 10` to any of the Step 3 vector-search invocations, e.g. invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table customer_experience_derived.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and `--top-k 10`.
+If top-5 results feel thin or off-topic, increase coverage by adding `--top-k 10` to any of the Step 3 vector-search invocations, e.g. invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.kitsune_retrieval_index`, `--columns title,content,answer_content,summary_generated,category_generated,sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and `--top-k 10`.
 
 ## Troubleshooting
 

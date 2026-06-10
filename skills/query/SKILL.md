@@ -1,6 +1,6 @@
 ---
 name: query
-description: Runs a direct SQL query against any BigQuery table and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text. Use {project} in the SQL as a placeholder for the GCP project name.
+description: Runs a direct SQL query against any BigQuery table and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text. Reference tables by their full name (e.g. mozdata.customer_experience.kitsune_retrieval_index).
 ---
 
 # Query Skill
@@ -11,10 +11,10 @@ Runs a direct SQL query against BigQuery and prints results as a formatted text 
 
 ```bash
 python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/query/scripts/query.py \
-  --sql "<SQL query using {project} as project placeholder>"
+  --sql "<SQL querying mozdata.customer_experience.<table>>"
 ```
 
-The script replaces `{project}` with the active GCP project at runtime.
+Reference tables by their full name, e.g. `mozdata.customer_experience.kitsune_retrieval_index`.
 
 ## When to use
 
