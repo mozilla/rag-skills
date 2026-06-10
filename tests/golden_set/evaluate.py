@@ -1,4 +1,4 @@
-,#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 LLM-as-judge evaluator for cx-rag-researcher agent responses.
 

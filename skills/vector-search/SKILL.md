@@ -10,7 +10,7 @@ Queries any BigQuery table using a pre-computed embedding vector and returns the
 ## Usage
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
+python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/embedding.json \
   --table dataset.table_name \
   [--embedding-column embedding] \
@@ -54,12 +54,12 @@ distance: 0.28
 
 ```bash
 # Step 1 — embed the question
-python ${CLAUDE_PLUGIN_ROOT}/skills/embed/scripts/embed.py \
+python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/embed/scripts/embed.py \
   --question "What are users saying about Firefox sync?" \
   > /tmp/embedding.json
 
 # Step 2 — search a table
-python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
+python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/vector-search/scripts/vector_search.py \
   --embedding-file /tmp/embedding.json \
   --table my_dataset.my_index_table \
   --columns title,content,created_at \

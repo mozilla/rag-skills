@@ -33,5 +33,12 @@
     "expected_mode": "hybrid",
     "expected_sources": ["Kitsune", "Zendesk", "Knowledge Base"],
     "notes": "Comparison question — must use all three sources. KB for official guidance, Kitsune/Zendesk for user experience."
+  },
+  {
+    "id": 6,
+    "question": "Summarize our users' concerns about the Password Manager in Firefox Desktop during 2026. For each concern, identify if we have a support article addressing it and flag any gaps.",
+    "expected_mode": "hybrid",
+    "expected_sources": ["Kitsune", "Zendesk", "Knowledge Base"],
+    "notes": "Comparison + gap analysis. Hybrid: SQL to rank password-manager concerns (Kitsune topic / Zendesk category) filtered to Firefox desktop and 2026 dates, vector search for concern detail, KB vector search for articles, then flag concerns with no matching article. Answer must be fully grounded; if a source returns nothing, say so."
   }
 ]
