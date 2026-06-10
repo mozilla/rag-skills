@@ -29,7 +29,7 @@ Use `embed` + `vector-search` when the question requires reading and synthesizin
 
 ## Common SQL patterns
 
-**Dataset:** `{project}.customer_experience_derived`
+**Dataset:** `mozdata.customer_experience`
 **Tables:** `kitsune_retrieval_index`, `zendesk_retrieval_index`, `knowledge_base_retrieval_index`
 
 **Date filter columns:**
@@ -40,25 +40,25 @@ Use `embed` + `vector-search` when the question requires reading and synthesizin
 ```sql
 -- Top topics by volume (Kitsune)
 SELECT topic, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY count DESC LIMIT 10
 
 -- Top categories by volume (Zendesk)
 SELECT category_generated, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.zendesk_retrieval_index`
+FROM `mozdata.customer_experience.zendesk_retrieval_index`
 WHERE DATE(creation_date) BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY category_generated ORDER BY count DESC LIMIT 10
 
 -- Average sentiment by topic (Kitsune only — do not use Zendesk sentiment)
 SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
-FROM `{project}.customer_experience_derived.kitsune_retrieval_index`
+FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY avg_sentiment ASC LIMIT 10
 
 -- Volume by product (Zendesk)
 SELECT product, COUNT(*) AS count
-FROM `{project}.customer_experience_derived.zendesk_retrieval_index`
+FROM `mozdata.customer_experience.zendesk_retrieval_index`
 WHERE DATE(creation_date) BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY product ORDER BY count DESC
 ```

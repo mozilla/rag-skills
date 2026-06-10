@@ -7,7 +7,7 @@ active GCP project at runtime.
 
 Usage:
     python scripts/query.py --sql "SELECT topic, COUNT(*) AS count
-        FROM \`{project}.customer_experience_derived.kitsune_retrieval_index\`
+        FROM \`mozdata.customer_experience.kitsune_retrieval_index\`
         WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
         GROUP BY topic ORDER BY count DESC LIMIT 10"
 

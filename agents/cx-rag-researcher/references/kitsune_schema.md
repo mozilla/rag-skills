@@ -1,6 +1,6 @@
 # kitsune_retrieval_index Schema Reference
 
-**Table:** `<project>.customer_experience_derived.kitsune_retrieval_index`
+**Table:** `mozdata.customer_experience.kitsune_retrieval_index`
 **Purpose:** Semantic search index over SUMO forum content, pre-embedded for vector similarity queries.
 
 ## Columns used by the orchestrator
@@ -54,7 +54,7 @@ All embeddings use `gemini-embedding-001` via Vertex AI. The orchestrator embeds
 ```sql
 SELECT base.<content_cols>, distance
 FROM VECTOR_SEARCH(
-    TABLE `<project>.customer_experience_derived.kitsune_retrieval_index`,
+    TABLE `mozdata.customer_experience.kitsune_retrieval_index`,
     'embedding',
     (SELECT <query_embedding> AS embedding),
     top_k => 5,
