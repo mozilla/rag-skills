@@ -1,6 +1,6 @@
 ---
 name: query
-description: Runs a direct SQL query against any BigQuery table and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text. Use {project} in the SQL as a placeholder for the GCP project name.
+description: Runs a direct SQL query against any BigQuery table and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text. Reference tables by their full name (e.g. mozdata.customer_experience.kitsune_retrieval_index).
 ---
 
 # Query Skill
@@ -11,10 +11,10 @@ Runs a direct SQL query against BigQuery and prints results as a formatted text 
 
 ```bash
 python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/query/scripts/query.py \
-  --sql "<SQL query using {project} as project placeholder>"
+  --sql "<SQL querying mozdata.customer_experience.<table>>"
 ```
 
-The script replaces `{project}` with the active GCP project at runtime.
+Reference tables by their full name, e.g. `mozdata.customer_experience.kitsune_retrieval_index`.
 
 ## When to use
 
@@ -34,8 +34,8 @@ Use `embed` + `vector-search` when the question requires reading and synthesizin
 
 **Date filter columns:**
 - Kitsune: `creation_date` DATE — use `creation_date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'`
-- Zendesk: `creation_date` TIMESTAMP — use `DATE(creation_date) BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'`
-- Knowledge Base: no date column
+- Zendesk: `creation_date` DATE — use `creation_date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'`
+- Knowledge Base: no `creation_date`; use `last_approved_revision_date` (DATE) if a date bound is needed
 
 ```sql
 -- Top topics by volume (Kitsune)
@@ -45,13 +45,13 @@ WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY count DESC LIMIT 10
 
 -- Top categories by volume (Zendesk)
-SELECT category_generated, COUNT(*) AS count
+SELECT ticket_category_llm, COUNT(*) AS count
 FROM `mozdata.customer_experience.zendesk_retrieval_index`
-WHERE DATE(creation_date) BETWEEN '2026-03-24' AND '2026-04-22'
-GROUP BY category_generated ORDER BY count DESC LIMIT 10
+WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
+GROUP BY ticket_category_llm ORDER BY count DESC LIMIT 10
 
 -- Average sentiment by topic (Kitsune only — do not use Zendesk sentiment)
-SELECT topic, COUNT(*) AS count, ROUND(AVG(sentiment_score), 2) AS avg_sentiment
+SELECT topic, COUNT(*) AS count, ROUND(AVG(question_sentiment_score), 2) AS avg_sentiment
 FROM `mozdata.customer_experience.kitsune_retrieval_index`
 WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY topic ORDER BY avg_sentiment ASC LIMIT 10
@@ -59,7 +59,7 @@ GROUP BY topic ORDER BY avg_sentiment ASC LIMIT 10
 -- Volume by product (Zendesk)
 SELECT product, COUNT(*) AS count
 FROM `mozdata.customer_experience.zendesk_retrieval_index`
-WHERE DATE(creation_date) BETWEEN '2026-03-24' AND '2026-04-22'
+WHERE creation_date BETWEEN '2026-03-24' AND '2026-04-22'
 GROUP BY product ORDER BY count DESC
 ```
 

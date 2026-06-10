@@ -2,8 +2,7 @@
 """
 Runs a direct SQL query against BigQuery and prints results as a formatted table.
 
-Use {project} in the SQL as a placeholder — the script replaces it with the
-active GCP project at runtime.
+Reference tables by their full name, e.g. mozdata.customer_experience.kitsune_retrieval_index.
 
 Usage:
     python scripts/query.py --sql "SELECT topic, COUNT(*) AS count
@@ -113,11 +112,11 @@ def format_results(rows: list[dict]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a direct SQL query against BigQuery.")
     parser.add_argument("--sql", required=True,
-                        help="SQL query to run. Use {project} as a placeholder for the GCP project.")
+                        help="SQL query to run. Reference tables by full name, e.g. mozdata.customer_experience.<table>.")
     args = parser.parse_args()
 
     token, project = get_auth()
-    sql = args.sql.replace("{project}", project)
+    sql = args.sql
 
     print("Running query...", file=sys.stderr, flush=True)
     rows = run_query(sql, token, project)

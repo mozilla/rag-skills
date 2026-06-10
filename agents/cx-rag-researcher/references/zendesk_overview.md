@@ -22,7 +22,7 @@ The `zendesk_retrieval_index` table contains processed and embedded Zendesk tick
 | Visibility | Public forum | Private support tickets |
 | Content | Questions + community answers | Direct user-to-staff reports |
 | Best use | Sentiment analysis, topic discovery | Bug identification, problem frequency |
-| Sentiment | `sentiment_score` is reliable | `sentiment_score` is unreliable — do not use for sentiment |
+| Sentiment | `ticket_sentiment_score` is reliable | `ticket_sentiment_score` is unreliable — do not use for sentiment |
 | Volume | Higher (public forum) | Lower (direct contact) |
 
 ## Known limitations
@@ -30,7 +30,7 @@ The `zendesk_retrieval_index` table contains processed and embedded Zendesk tick
 | Limitation | Impact |
 |-----------|--------|
 | Not real-time | Index is periodically refreshed; very recent tickets may not be included |
-| Sentiment is unreliable | `sentiment_score` is LLM-generated from ticket text and does not reliably reflect how the user feels |
+| Sentiment is unreliable | `ticket_sentiment_score` is LLM-generated from ticket text and does not reliably reflect how the user feels |
 | Skewed toward severe problems | Users who file tickets are more likely to have serious, unresolved issues |
 | `star_rating` scope | Reflects satisfaction with the support interaction, not with Firefox itself |
 

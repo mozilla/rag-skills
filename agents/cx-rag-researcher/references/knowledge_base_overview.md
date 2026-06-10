@@ -30,9 +30,9 @@ The `knowledge_base_retrieval_index` table contains processed and embedded KB ar
 
 | Limitation | Impact |
 |-----------|--------|
-| No date column | Cannot be filtered by time period — always returns results from the full article corpus |
-| No product column | Cannot be filtered by Firefox product |
-| Sentiment is article tone | `sentiment_score` reflects the LLM's read of the article text, not how users feel |
+| No `creation_date` | Cannot be filtered by creation time; `last_approved_revision_date` (DATE) is available if a date bound is needed |
+| Product is `products` (plural) | Filter by product via the `products` STRING column — there is no singular `product` column |
+| No sentiment column | The KB table has no sentiment field at all — never attribute sentiment to KB articles |
 | Curated, not exhaustive | Only covers topics that have been formally documented; emerging issues may not yet have articles |
 | Not real-time | Index is periodically refreshed; very recently published articles may not be included |
 
