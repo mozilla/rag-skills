@@ -34,7 +34,7 @@ Kitsune is the application powering support.mozilla.org. It contains forum threa
 
 Zendesk contains structured support tickets. Although a `ticket_sentiment_score` column is present, **it does not reliably reflect user sentiment** — do not use it for sentiment analysis. Use Zendesk to understand **what problems users are reporting**, the nature of bugs, and the reasons behind negative experiences. Note: `creation_date` is a `DATE`.
 
-**Columns:** `title`, `content`, `ticket_summary_llm`, `ticket_category_llm`, `ticket_sentiment_score`, `product`, `star_rating`, `recency_score`
+**Columns:** `title`, `content`, `ticket_summary_llm`, `ticket_category_llm`, `product`, `star_rating`, `recency_score` (`ticket_sentiment_score` exists but is unreliable — omit it; see below)
 
 ### Knowledge Base
 
@@ -46,16 +46,125 @@ The `slug` field maps to a live article URL: `support.mozilla.org/kb/<slug>`. In
 
 See `references/kitsune_schema.md`, `references/zendesk_schema.md`, and `references/knowledge_base_schema.md` for full column details per source.
 
+## Column Usage Reference
+
+Per-column guidance grounded in profiling of the live tables. Tags: **✅ reliable** · **⚠️ use with caveat** · **⛔ avoid**.
+
+**The data is continuously populating, so the fill-rate percentages below are a snapshot (as of 2026-06-11), not fixed facts.** They generally move *toward* more complete over time. Treat them as directional ("sparse" / "mostly empty"), not exact, and **re-verify before relying on a fill-rate for an aggregation or a "this column is empty/broken" claim** using:
+
+```sql
+SELECT COUNT(*) total,
+       COUNTIF(<col> IS NULL OR CAST(<col> AS STRING)='') empty,
+       COUNT(DISTINCT <col>) distinct_vals
+FROM mozdata.customer_experience.<table>
+WHERE creation_date >= '<start>'   -- omit for the unpartitioned KB
+```
+
+What is **durable** (structural, won't change as data grows): the `type` columns being single-valued; `products`/`topics` being slug STRINGs (not arrays); `star_rating` being a `5star`-style STRING (not numeric); KB being multilingual (filter `locale='en-US'`); the LLM-category long tails; and Kitsune/Zendesk holding data **only from 2025-01-01 onward** (no backfill expected — don't offer earlier ranges). The KB is unpartitioned (~1,469 rows across 52 locales).
+
+Quick gotchas that override intuition: every source's `type` column is **single-valued and dead**; KB spans **52 locales** (filter `locale='en-US'`); and of the three `*_sentiment_score` signals, only **Kitsune's `question_sentiment_score`** is trustworthy. Two columns are **currently unpopulated** — Kitsune `is_firefox_product` and KB `parent_id` read all-NULL today, but since the pipeline is still filling, **re-check them before use** rather than assuming they will always be empty (use `product` instead of `is_firefox_product` regardless).
+
+### Kitsune (`kitsune_retrieval_index`)
+
+| Column | Tag | How to use |
+|--------|-----|-----------|
+| `creation_date` | ✅ | Required date filter (partition). Data only from 2025-01-01 — don't offer earlier ranges. |
+| `question_id` | ✅ | Unique key for dedup/join; not an analysis field. |
+| `answer_id` | ⚠️ | NULL for ~17% (unanswered). Presence = "has an accepted answer", not engagement. |
+| `title`, `content` | ✅ | Always populated; question title/body. Display + vector input, not filters. |
+| `locale` | ✅ | Always populated, 11 values. **Preferred** language filter (curated). |
+| `topic` | ✅ | Always populated, 117-value curated vocab. **Preferred grouping dimension** for Kitsune. |
+| `tier1_topic` | ✅ | Always populated; coarse level of the topic hierarchy. |
+| `tier2_topic` | ⚠️ | ~17% empty; treat empty as "unclassified". |
+| `tier3_topic` | ⛔ | ~73% empty — too sparse for ranking/grouping. |
+| `answer_content` | ⚠️ | ~17% empty (unanswered). The accepted-answer text. |
+| `answer_latency_seconds` | ⚠️ | ~17% NULL = unanswered (not zero). Exclude NULLs from latency stats. |
+| `type` | ⛔ | Always `"question"` — no filtering value. |
+| `is_self_answer` | ✅ | BOOL, ~25% true; user answered their own question. |
+| `is_firefox_product` | ⛔ | **Currently all-NULL — unpopulated.** Re-check before use; use `product` instead. |
+| `num_helpful_votes`, `num_unhelpful_votes` | ⚠️ | ~17% NULL, ~76% zero, avg ~0.11. Very sparse — don't rank by votes; weak tiebreak at most. |
+| `question_summary_llm` | ✅ | LLM summary, always present. Display/context, not a filter. |
+| `question_category_llm` | ⚠️ | LLM-derived, ~2,431 distinct (long tail). Top values clean (Account Setup, Bookmarks…); fine for top-N, not exhaustive grouping. |
+| `question_language_llm` | ⚠️ | LLM-detected language, ~104 values. Prefer curated `locale` for filtering. |
+| `question_entities_llm` | ✅ | Array, ~0.4% empty. `query.py` + `EXISTS UNNEST` only (not `--filter`). |
+| `question_topics_llm` | ✅ | Array, ~0.1% empty. LLM themes; `query.py` only. |
+| `question_sentiment_score` | ✅ | FLOAT −1..1, fully populated. **The only trustworthy sentiment column** across all sources. |
+| `embedding` | ⛔ | Infra vector — vector-search only, never SELECT/display. |
+| `metadata` | ⛔ | Provenance struct (model/prompt versions). Not for analysis. |
+| `product_version` | ⚠️ | ~64% empty. Kitsune-only, exploratory, never for ranking (see §1c). |
+| `product` | ✅ | Exact-value filter (vocabulary in §1c). |
+| `recency_score` | ⚠️ | Derived freshness 0..0.97; ranking aid only, not a user signal. |
+
+### Zendesk (`zendesk_retrieval_index`)
+
+| Column | Tag | How to use |
+|--------|-----|-----------|
+| `creation_date` | ✅ | Required date filter (partition). Data from 2025-01-01. |
+| `ticket_id` | ✅ | Unique key; not analysis. |
+| `title`, `content` | ✅ | Always populated. Display + vector input. |
+| `status` | ✅ | 6 values, always populated — but ~97% `closed`; near-constant, weak signal. |
+| `last_solved_at`, `closed_at` | ⚠️ | ~2.5–2.9% NULL (still-open tickets). TIMESTAMPs. |
+| `resolution_latency_seconds` | ⚠️ | ~2.9% NULL (unresolved); exclude NULLs from stats. |
+| `star_rating` | ⚠️ | ~74% empty; STRING values `5star`…`1star` (not numeric). Skewed to 5star. Only ~26% rated — disclose when used. |
+| `locale` | ✅ | Always populated, 7 values. Preferred language filter. |
+| `custom_country` | ⚠️ | ~63% empty, 83 values. Use only when present; never for volume claims. |
+| `group_name` | ✅ | 7 values, always populated; support-queue routing (Firefox Mobile Support dominates). Useful for routing analysis. |
+| `via_channel` | ⚠️ | 4 values, but `any_channel`/`api` dominate — low analytical value. |
+| `custom_category` | ⚠️ | ~62% empty, 6 values (accounts/technical/payment…). `ticket_category_llm` is the richer alternative. |
+| `automation_category` | ⛔ | Opaque INT64 flag, only 0/1; meaning undocumented. Avoid. |
+| `type` | ⛔ | Always `"ticket"` — no value. |
+| `ticket_summary_llm` | ✅ | LLM summary; display/context. |
+| `ticket_category_llm` | ⚠️ | LLM-derived, ~3,228 distinct (long tail). Top-N grouping only. **Zendesk's main topic/category signal** (no curated `topic` column here). |
+| `ticket_language_llm` | ⚠️ | LLM language; prefer `locale`. |
+| `ticket_entities_llm`, `ticket_topics_llm` | ✅ | Arrays, ~1–2% empty; `query.py` + `EXISTS UNNEST` for grouping (Zendesk topics live here). |
+| `ticket_sentiment_score` | ⛔ | Populated (−1..1) **but do not use** — unreliable for Zendesk. Use Kitsune for sentiment. |
+| `embedding`, `metadata` | ⛔ | Infra; never SELECT. |
+| `product_version` | ⛔ | ~97% empty + app-version strings, not Firefox releases. Unusable. |
+| `product` | ✅ | Exact-value filter (§1c). Note: **no Firefox Desktop** data in Zendesk. |
+| `recency_score` | ⚠️ | Derived freshness; ranking aid only. |
+
+### Knowledge Base (`knowledge_base_retrieval_index`)
+
+| Column | Tag | How to use |
+|--------|-----|-----------|
+| `id` | ✅ | Unique key. |
+| `title` | ✅ | Always populated; display. |
+| `slug` | ✅ | Always populated; build links as `support.mozilla.org/kb/<slug>`. |
+| `locale` | ⚠️ | 52 locales — KB is multilingual. **Filter `locale='en-US'`** for English unless asked otherwise, or counts mix translations. |
+| `content` | ⚠️ | ~22% empty (stubs/redirects/untranslated). Check before relying on body text. |
+| `category` | ⛔ | Opaque INT64, 2 values. Use `article_category_llm` instead. |
+| `needs_change`, `needs_change_comment` | ⚠️ | Editorial flag, ~2% true; niche, not a user signal. |
+| `share_link` | ⚠️ | Sparse; prefer building links from `slug`. |
+| `display_order` | ⛔ | UI ordering int; not analytical. |
+| `current_revision_id`, `latest_localizable_revision_id` | ⛔ | Internal revision IDs. |
+| `parent_id` | ⛔ | **Currently 100% NULL** — re-check before use. |
+| `products` | ✅ | Slash-delimited **STRING** (not array); match `LOWER(products) LIKE '%/firefox/%'` (§1c). |
+| `topics` | ⚠️ | Slash-delimited STRING like `products`; ~26% empty. Same `LIKE '%/slug/%'` pattern. |
+| `is_template` | ⛔ | All false here — no value. |
+| `is_localizable` | ⚠️ | ~71% true; editorial attribute. |
+| `allow_discussion` | ⛔ | ~99% true — near-constant. |
+| `last_updated` | ✅ | TIMESTAMP of last edit. |
+| `last_approved_revision_date` | ⚠️ | DATE; ~22% NULL; the only date bound for KB (no `creation_date`). |
+| `num_pageviews_last_{7,30,90,365}_days` | ✅ | Popularity counts (max ~716k/30d). ~25% NULL — treat NULL as unknown, not zero. The signal for "most viewed articles". |
+| `type` | ⛔ | Always `"article"` — no value. |
+| `article_summary_llm` | ✅ | LLM summary; display/context. |
+| `article_category_llm` | ⚠️ | LLM-derived, ~349 distinct; top-N grouping only. |
+| `article_entities_llm`, `article_topics_llm` | ✅ | Arrays, ~2% empty; `query.py` + `EXISTS UNNEST`. |
+| `embedding`, `metadata` | ⛔ | Infra; never SELECT. |
+| `is_stale` | ⚠️ | ~70% true — most articles flagged stale. Surface this when citing KB as "current guidance". |
+
 ## Column Data Provenance
 
 **Rule:** columns named with a `_llm` suffix, plus `embedding`, the `*_sentiment_score` columns, and `recency_score`, are **LLM-calculated**. All other columns come directly **from the source platform** (human-curated or system-generated by the product).
 
-| Type | Columns | Reliability for aggregation |
-|------|---------|----------------------------|
-| **Source** | `title`, `content`, `topic`, `product`, `products` (KB), `topics` (KB), `locale`, `creation_date`, `star_rating`, `status`, `type`, `slug`, `custom_category` (Zendesk), `tier1_topic`, `tier2_topic`, `tier3_topic` | High — consistent, controlled vocabulary |
-| **LLM-calculated** | `*_category_llm`, `*_summary_llm`, `*_language_llm`, `*_topics_llm`, `*_entities_llm`, `*_sentiment_score`, `recency_score`, `embedding` | Lower — may be inconsistent across batches |
+| Type | Columns | Origin trust | Aggregation note |
+|------|---------|--------------|------------------|
+| **Source** | `title`, `content`, `topic`, `product`, `products` (KB), `topics` (KB), `locale`, `creation_date`, `star_rating`, `status`, `type`, `slug`, `custom_category` (Zendesk), `tier1_topic`, `tier2_topic`, `tier3_topic` | High — controlled vocabulary, stable across batches | **Origin trust ≠ completeness.** Several source columns are dead or sparse and unfit for `GROUP BY`/`COUNT` — confirm fill-rate per column in the **Column Usage Reference** above. |
+| **LLM-calculated** | `*_category_llm`, `*_summary_llm`, `*_language_llm`, `*_topics_llm`, `*_entities_llm`, `*_sentiment_score`, `recency_score`, `embedding` | Lower — may be inconsistent across batches | High-cardinality long tails (`*_category_llm` has thousands of distinct values); group on top-N only. |
 
-**Prefer source columns for `GROUP BY` and `COUNT`. Use LLM columns only when no source equivalent exists or for semantic filtering.**
+**Dead or sparse source columns — do not aggregate on these despite their "source" origin** (percentages are the 2026-06-11 snapshot — verify if a value looks decisive): `type` (single-valued in every table — structural), `is_firefox_product` (Kitsune, currently all-NULL), `star_rating` (Zendesk, ~74% empty), `custom_category` (Zendesk, ~62% empty), `status` (Zendesk, ~97% `closed`), `tier2_topic`/`tier3_topic` (Kitsune, ~17%/~73% empty), `topics` (KB, ~26% empty), `category`/`parent_id` (KB, opaque INT64 / currently 100% NULL).
+
+**Prefer source columns for `GROUP BY` and `COUNT`, but only the well-populated ones** (e.g. Kitsune `topic`, `product`, `locale`). Use LLM columns when no usable source equivalent exists (e.g. Kitsune has no source category → `question_category_llm`; Zendesk has no source topic → `ticket_topics_llm`) or for semantic filtering.
 
 ## Column Selection Guide
 
@@ -67,17 +176,17 @@ See `references/kitsune_schema.md`, `references/zendesk_schema.md`, and `referen
 
 | Source | Topic column | Notes |
 |--------|--------------|-------|
-| Kitsune | `topic` (source, scalar) | SUMO controlled vocabulary; drill down with `tier1_topic` → `tier2_topic` → `tier3_topic`. `question_topics_llm` (array) also available. |
+| Kitsune | `topic` (source, scalar) | SUMO controlled vocabulary, fully populated. Drill down with `tier1_topic` (always present) → `tier2_topic` (~17% empty) → `tier3_topic` (~73% empty — too sparse to rank on). `question_topics_llm` (array) also available. |
 | Zendesk | `ticket_topics_llm` (array, LLM) | No source topic column — must `UNNEST` to group; a ticket with N topics is counted N times |
-| Knowledge Base | `topics` (source, STRING) | `article_topics_llm` (array, LLM) also available |
+| Knowledge Base | `topics` (source, slug STRING, ~26% empty) | Slash-delimited slugs, not an array — filter with `LIKE '%/slug/%'`, don't `UNNEST`. `article_topics_llm` (array, LLM) also available |
 
 **By category:**
 
 | Source | Category column (scalar STRING, LLM) | Source category |
 |--------|--------------------------------------|-----------------|
-| Kitsune | `question_category_llm` | none |
-| Zendesk | `ticket_category_llm` | `custom_category` (STRING) |
-| Knowledge Base | `article_category_llm` | `category` (INT64 id) |
+| Kitsune | `question_category_llm` (~2,431 distinct — top-N only) | none |
+| Zendesk | `ticket_category_llm` (~3,228 distinct — top-N only) | `custom_category` (STRING, ~62% empty) |
+| Knowledge Base | `article_category_llm` (~349 distinct) | `category` (INT64 id — opaque, 2 values) |
 
 **Cross-source comparison:** there is **no shared category taxonomy**. Source categories differ by type and vocabulary — Zendesk `custom_category` holds support tags (`accounts`, `technical`, `payment`), KB `category` holds numeric INT64 ids, and Kitsune has no source category at all. The `*_category_llm` columns are all human-readable STRINGs, so they *can* be `UNION`-ed into one view, but their label sets also differ per source (Kitsune ≈ feature areas like "Customization"/"Performance", Zendesk ≈ feedback types like "Bug Report"/"User Review", KB ≈ article types like "Troubleshooting"/"Release Notes") — so treat any cross-source category comparison as approximate, not a true shared scheme. Topic columns likewise differ in shape (scalar `topic`/`topics` vs the `*_topics_llm` arrays) and are not directly comparable across sources.
 
@@ -103,7 +212,7 @@ GROUP BY t ORDER BY n DESC
 | Posts about a specific **theme or concept** ("sync issues", "crashes") | `question_topics_llm` | `query.py` only | `WHERE EXISTS (SELECT 1 FROM UNNEST(question_topics_llm) t WHERE LOWER(t) LIKE LOWER('%sync%'))` |
 | Posts mentioning a specific **named thing** (feature, product, URL) | `question_entities_llm` | `query.py` only | `WHERE EXISTS (SELECT 1 FROM UNNEST(question_entities_llm) e WHERE LOWER(e) LIKE LOWER('%firefox sync%'))` |
 | Cast a wide net — theme or named thing | Both with `OR` | `query.py` only | Combine the two UNNEST patterns above with `OR` |
-| Filter by product | `product` | `query.py` or `vector_search.py --filter` | `LOWER(product) LIKE LOWER('%fenix%')` |
+| Filter by product | `product` (Kitsune/Zendesk scalar); KB uses the `products` slug string | `query.py` or `vector_search.py --filter` | `product = 'Firefox Desktop'` — use the **exact** value per source (see Product vocabulary in §1c); KB: `LOWER(products) LIKE '%/firefox/%'` |
 | Filter by language | `locale` | `query.py` or `vector_search.py --filter` | `LOWER(locale) LIKE LOWER('%es%')` |
 | Filter by topic (Kitsune) | `topic` | `query.py` or `vector_search.py --filter` | `--filter "topic:browser-appearance"` |
 | Filter by category | `<source>_category_llm` | `query.py` or `vector_search.py --filter` | `--filter "ticket_category_llm:Bug Report"` |
@@ -116,11 +225,11 @@ Before writing any query, verify the required signal exists in the table. If it 
 
 | Question | Signal available? | Notes |
 |----------|------------------|-------|
-| "Most viewed KB articles" | ✓ KB (`num_pageviews_last_{7,30,90,365}_days`) | Counts article views, not searches |
+| "Most viewed KB articles" | ✓ KB (`num_pageviews_last_{7,30,90,365}_days`) | Counts article views, not searches; ~25% NULL — treat NULL as unknown, not zero |
 | "Top topics by post volume" | ✓ Kitsune (`topic`), Zendesk (`UNNEST(ticket_topics_llm)`) | Zendesk has no scalar topic column |
-| "Top categories by volume" | ✓ Kitsune (`question_category_llm`), Zendesk (`ticket_category_llm`), KB (`article_category_llm`) | |
+| "Top categories by volume" | ✓ Kitsune (`question_category_llm`), Zendesk (`ticket_category_llm`), KB (`article_category_llm`) | All LLM-derived, high-cardinality long tails — report top-N, not the full list |
 | "Average sentiment by topic" | ✓ Kitsune only | Do not use `ticket_sentiment_score` (Zendesk); KB has no sentiment column |
-| "Top KB topics by article count" | ✓ KB (`topics`, or `UNNEST(article_topics_llm)`) | Counts articles, not user queries |
+| "Top KB topics by article count" | ✓ KB (`UNNEST(article_topics_llm)`) | Group on the `article_topics_llm` array; the source `topics` is a slug STRING (~26% empty), not a clean topic field. Counts articles, not user queries |
 
 ## 🚨 REQUIRED — Follow These Steps on Every Invocation
 
@@ -176,9 +285,47 @@ Date filters apply to Kitsune and Zendesk (`creation_date`, a `DATE` on both). T
 
 | What the user says | Filter behaviour | Example |
 |--------------------|-----------------|---------|
-| Single product ("Firefox for Android", "Fenix") | `--filter "product:<name>"` (KB uses `products`) | `--filter "product:Fenix"` |
-| Multiple products ("Fenix and Firefox desktop") | Run separate queries per product, then combine results | Two queries: `--filter "product:Fenix"` + `--filter "product:Firefox desktop"` |
+| Single product (see vocabulary below) | `--filter "product:<exact value>"` (KB uses `products`) | `--filter "product:Firefox Desktop"` |
+| Multiple products ("Fenix and Firefox Desktop") | Run separate queries per product, then combine results | Two queries: `--filter "product:Fenix"` + `--filter "product:Firefox Desktop"` |
 | Language / country ("Spanish users", "in France") | `--filter "locale:<code>"` | `--filter "locale:es"` |
+
+##### Product vocabulary — map the user's phrasing to the EXACT stored value per source
+
+**Each source uses a different vocabulary. Never guess or carry a value across sources. "Firefox Desktop" is `Firefox Desktop` in Kitsune, is absent from Zendesk, and is `/firefox/` in the KB. Do not default to Fenix.**
+
+| User means | Kitsune `product` | Zendesk `product` | KB `products` (slug string — match with `LIKE '%<slug>%'`) |
+|------------|-------------------|-------------------|------------------------------------------------------------|
+| Firefox Desktop | `Firefox Desktop` | *(not present — no desktop tickets)* | `/firefox/` |
+| Firefox for Android | `Fenix` | `Fenix` | `/mobile/` |
+| Firefox iOS | `Firefox iOS` | `Firefox iOS` | `/ios/` |
+| Firefox Focus / Klar | `Firefox Focus` | *(not present)* | `/focus-firefox/`, `/klar/` |
+| Firefox Enterprise | `Firefox Enterprise` | *(not present)* | `/firefox-enterprise/` |
+| Thunderbird | `Thunderbird` | *(not present)* | — |
+| Mozilla VPN | *(not present)* | `Mozilla VPN` | `/mozilla-vpn/` |
+| Mozilla Account | *(not present)* | `Mozilla Account` | `/mozilla-account/` |
+| Mozilla Monitor | `Mozilla Monitor` | `Mozilla Monitor` | `/monitor/` |
+| Firefox Relay | *(not present)* | `Firefox Relay` | `/relay/` |
+| MDN Plus | *(not present)* | `MDN Plus` | `/mdn-plus/` |
+
+Rules:
+- **Kitsune / Zendesk `product` is an exact scalar string** — pass it verbatim to `--filter "product:<value>"`. The largest Zendesk product is `Fenix` (mobile), so a `product` filter is essential to avoid mobile dominating a desktop question.
+- **If a requested product is "not present" for a source, do not substitute another value.** Skip that source and tell the user it has no data for that product (per the grounding contract). Never fall back to Fenix or any other product.
+- **KB `products` is a single slash-delimited STRING, not an array** (e.g. `/firefox/mobile/ios/`). Do not `UNNEST` it. Filter with a substring match including the surrounding slashes — `LOWER(products) LIKE '%/firefox/%'` — so `/firefox/` matches but `/firefox-enterprise/` does not.
+- If the user names a product not in this table, run `SELECT product, COUNT(*) FROM <table> WHERE creation_date >= ... GROUP BY product` first to discover the exact stored value before filtering.
+
+##### Product version (`product_version`) — mostly empty, do not use for ranking
+
+A `product_version` column exists on Kitsune and Zendesk, but it is sparsely populated and **must not be used for any count, prevalence, or ranking claim**:
+
+| | Kitsune | Zendesk |
+|---|---------|---------|
+| Populated | ~36% (≈64% empty) | ~3% (≈97% empty) |
+| Value format | Firefox release numbers (`149.0`, `146.0.1`) | app-version strings (`2.32.0`), **not** Firefox releases |
+
+Rules:
+- **Never filter `product_version` for volume/ranked questions.** Empties are silently dropped, so any count is biased toward the minority of rows that happen to record a version.
+- **Zendesk `product_version` is effectively unusable** (97% empty, and the values aren't Firefox release numbers). Do not filter on it.
+- If a user asks about a **specific Firefox version**, use `product_version` in **Kitsune only**, for exploratory (vector-search) lookups — not for counts. Treat empty as "unknown", never as zero, and tell the user the version field covers only ~a third of Kitsune rows.
 
 ### Step 2: Choose retrieval mode
 
@@ -248,7 +395,7 @@ GROUP BY ticket_category_llm ORDER BY count DESC LIMIT 5
 | SQL grouped by | Vector search filter | Columns to fetch |
 |----------------|---------------------|-----------------|
 | `topic` (Kitsune) | `--filter "topic:<value>"` | `title,content,answer_content,question_summary_llm,question_sentiment_score,topic` |
-| `ticket_category_llm` (Zendesk) | `--filter "ticket_category_llm:<value>"` | `title,content,ticket_summary_llm,ticket_category_llm,ticket_sentiment_score,product,star_rating` |
+| `ticket_category_llm` (Zendesk) | `--filter "ticket_category_llm:<value>"` | `title,content,ticket_summary_llm,ticket_category_llm,product,star_rating` |
 
 Repeat for each top topic/category (max 3):
 
@@ -329,7 +476,7 @@ Call the `vector-search` skill **once per selected source**, passing the table, 
 
 **Kitsune** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.kitsune_retrieval_index`, `--columns title,content,answer_content,question_summary_llm,question_category_llm,question_sentiment_score,recency_score,product,topic`, `--label "SUMO / Kitsune"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
-**Zendesk** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.zendesk_retrieval_index`, `--columns title,content,ticket_summary_llm,ticket_category_llm,ticket_sentiment_score,product,star_rating,recency_score`, `--label "Zendesk"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
+**Zendesk** — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.zendesk_retrieval_index`, `--columns title,content,ticket_summary_llm,ticket_category_llm,product,star_rating,recency_score`, `--label "Zendesk"`, `--date-column creation_date`, and any applicable `--s YYYY-MM-DD`, `--e YYYY-MM-DD`, `--filter "product:<product name>"`, `--filter "locale:<locale code>"`.
 
 **Knowledge Base** (no `creation_date` — omit date filters) — invoke the **vector-search** skill with: `--embedding-file /tmp/cx_embedding.json`, `--table mozdata.customer_experience.knowledge_base_retrieval_index`, `--columns title,article_summary_llm,article_category_llm,slug,products`, and `--label "Knowledge Base"`.
 
@@ -373,7 +520,7 @@ User: *"What do users feel about the new Firefox home screen?"*
 User: *"What are the most common issues for Firefox on Android?"*
 
 1. Intent: user content → sources: `kitsune`, `zendesk`
-2. Embed → search both sources with `--filter "product:Firefox for Android"`
+2. Embed → search both sources with `--filter "product:Fenix"` (the stored value for Firefox for Android in Kitsune and Zendesk — see Product vocabulary in §1c)
 3. Group by `topic` (Kitsune) and `UNNEST(ticket_topics_llm)` (Zendesk) for topics, or the `*_category_llm` columns if the user asked for categories
 4. Summarize the 3-5 most frequent themes
 
