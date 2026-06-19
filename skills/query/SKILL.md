@@ -1,20 +1,32 @@
 ---
 name: query
-description: Runs a direct SQL query against any BigQuery table and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text. Reference tables by their full name (e.g. mozdata.customer_experience.kitsune_retrieval_index).
+description: Runs a read-only SQL query against the Customer Experience tables (mozdata.customer_experience) and returns results as a formatted table. Use when the question requires counts, aggregations, rankings, or distributions — not when it requires reading document text.
 ---
 
 # Query Skill
 
-Runs a direct SQL query against BigQuery and prints results as a formatted text table. No embedding required.
+Runs a read-only SQL query against BigQuery and prints results as a formatted text table. No embedding required.
+
+This skill is locked to **`mozdata.customer_experience`** — it can read any table or view in that dataset, and anything outside it is rejected. Only a single read-only `SELECT` (optionally `WITH … SELECT`) is accepted. The dataset boundary is enforced by asking BigQuery (via a dry run) which tables the query actually reads, so it can't be evaded by SQL the script doesn't parse.
+
+## Authentication
+
+Read-only BigQuery access only — authenticate with the read-only scope:
+
+```bash
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly
+```
+
+(If you also use the `embed` skill in the same session, it needs Vertex AI — append `,https://www.googleapis.com/auth/cloud-platform` to the scopes so one login covers both.)
 
 ## Usage
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT:?set by the plugin system; if empty, invoke this via the Skill tool}"/skills/query/scripts/query.py \
-  --sql "<SQL querying mozdata.customer_experience.<table>>"
+python ${CLAUDE_PLUGIN_ROOT}/skills/query/scripts/query.py \
+  --sql "<read-only SELECT over mozdata.customer_experience.<table>>"
 ```
 
-Reference tables by their full name, e.g. `mozdata.customer_experience.kitsune_retrieval_index`.
+Reference tables by their fully-qualified name (`mozdata.customer_experience.<table>`).
 
 ## When to use
 
@@ -79,7 +91,7 @@ passwords      74
 
 | Symptom | Fix |
 |---------|-----|
-| `Authentication rejected (401)` | Run `gcloud auth application-default login` |
-| `No GCP project configured` | Run `gcloud config set project <project-id>` |
-| `API error` | Confirm the project name with DE and re-authenticate |
+| `Authentication rejected (401)` / `GCP authentication required` | Run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly` |
+| `Missing dependency` | `pip install google-auth requests` |
+| `Refusing to run … outside the allowed dataset` / `Only read-only SELECT` | Query only tables or views in `mozdata.customer_experience` with a single read-only SELECT |
 | `No results` | Check date range, table name, and filter values |

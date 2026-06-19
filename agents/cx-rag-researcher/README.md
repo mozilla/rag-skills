@@ -9,7 +9,8 @@ Before using this agent you need:
 1. **Google Cloud SDK** installed — [install gcloud](https://cloud.google.com/sdk/docs/install)
 2. **Authenticated** with application-default credentials:
    ```bash
-   gcloud auth application-default login
+   gcloud auth application-default login \
+     --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform
    ```
 3. **GCP project set** to mozdata:
    ```bash
@@ -94,7 +95,7 @@ Scope your question naturally — the agent parses filters silently.
 
 | Symptom | Fix |
 |---------|-----|
-| `Authentication rejected (401)` | Re-run `gcloud auth application-default login` |
+| `Authentication rejected (401)` | Re-run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform` |
 | `No GCP project configured` | Run `gcloud config set project <project-name-from-DE>` |
 | Answer says "no results found" | Broaden the date range, remove product/locale filters, or rephrase |
 | Answer feels thin | Ask to broaden the date range or increase the result count |

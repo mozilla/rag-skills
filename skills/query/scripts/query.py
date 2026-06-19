@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""
-Runs a direct SQL query against BigQuery and prints results as a formatted table.
+r"""
+Runs a direct read-only SQL query against the Customer Experience tables.
 
-Reference tables by their full name, e.g. mozdata.customer_experience.kitsune_retrieval_index.
+This skill can only ever read any table or view in mozdata.customer_experience;
+any reference to another project or dataset is rejected, and only read-only
+SELECT queries are accepted. The dataset boundary is enforced authoritatively by
+asking BigQuery (via a dry run) which tables a query actually reads, so it cannot
+be evaded by SQL syntax the script doesn't parse.
 
 Usage:
     python scripts/query.py --sql "SELECT topic, COUNT(*) AS count
@@ -10,80 +14,181 @@ Usage:
         WHERE creation_date BETWEEN '2026-03-01' AND '2026-03-31'
         GROUP BY topic ORDER BY count DESC LIMIT 10"
 
+    ({project} may be used as a placeholder for the project — it is replaced with
+    the locked project at runtime.)
+
 Prerequisites:
-    Google Cloud SDK (gcloud CLI) with application-default credentials.
-    gcloud auth application-default login
-    gcloud config set project <project-id>
+    Python packages: google-auth, requests  ->  pip install google-auth requests
+    Application Default Credentials, set up once with:
+        gcloud auth application-default login
+
+    Authentication is delegated to the google-auth library: it loads and refreshes
+    the credentials and attaches them to each request. This script never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
 """
 
 import argparse
-import json
-import subprocess
+import re
 import sys
-import urllib.error
-import urllib.request
+
+# The only project / dataset this skill may ever touch. Any table or view inside
+# this dataset is allowed; anything outside it is rejected.
+PROJECT = "mozdata"
+DATASET = "customer_experience"
+
+# Least-privilege scope: read-only BigQuery access (no write/DDL at the token level).
+SCOPES = ["https://www.googleapis.com/auth/bigquery.readonly"]
+
+# Cost / size guards. maximumBytesBilled makes BigQuery cancel (and not bill) any
+# query that would scan more than this, capping runaway-cost scans. maxResults
+# caps how many rows a single response returns, bounding client memory.
+MAX_BYTES_BILLED = 50 * 2**30   # 50 GiB
+MAX_RESULT_ROWS = 10_000
+
+# Write / DDL / DCL keywords that must never appear anywhere in an accepted query.
+# (REPLACE and EXCEPT are intentionally omitted — they are read-only SELECT modifiers.)
+_FORBIDDEN_SQL = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|"
+    r"CALL|LOAD|EXPORT)\b",
+    re.IGNORECASE,
+)
 
 
-def get_auth() -> tuple[str, str]:
+def _strip_sql(sql: str) -> str:
+    """Remove comments and string literals so the guards can't be fooled or tripped
+    by keywords/identifiers that appear inside a comment or a quoted value."""
+    sql = re.sub(r"--[^\n]*", " ", sql)                      # line comments
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)    # block comments
+    sql = re.sub(r"'(?:[^'\\]|\\.)*'", "''", sql)            # single-quoted strings
+    sql = re.sub(r'"(?:[^"\\]|\\.)*"', '""', sql)            # double-quoted strings
+    return sql
+
+
+def assert_select_only(sql: str) -> None:
+    """Exit unless `sql` is a single read-only SELECT (optionally WITH ... SELECT).
+
+    Rejects multiple statements and any write/DDL keyword anywhere — including
+    inside a CTE, subquery, or EXISTS clause."""
+    stripped = _strip_sql(sql).strip()
+    if ";" in stripped.rstrip().rstrip(";"):
+        print("Only a single statement is allowed (no ';'-separated statements).", file=sys.stderr)
+        sys.exit(1)
+    if not re.match(r"^\(*\s*(SELECT|WITH)\b", stripped, re.IGNORECASE):
+        print("Only read-only SELECT queries are allowed.", file=sys.stderr)
+        sys.exit(1)
+    if _FORBIDDEN_SQL.search(stripped):
+        print("Only read-only SELECT queries are allowed (write/DDL keywords are not permitted).", file=sys.stderr)
+        sys.exit(1)
+
+
+def out_of_scope_tables(referenced: list[dict]) -> list[str]:
+    """Given BigQuery's `referencedTables` for a query, return the fully-qualified
+    names of any that fall outside the locked dataset. Empty list means in-bounds.
+
+    BigQuery resolves every table/view the query actually reads — through comma
+    joins, subqueries, CTEs, wildcards, and views — so this list is authoritative
+    where ad-hoc SQL parsing is not."""
+    bad = []
+    for t in referenced:
+        if t.get("projectId") != PROJECT or t.get("datasetId") != DATASET:
+            bad.append(f"{t.get('projectId')}.{t.get('datasetId')}.{t.get('tableId')}")
+    return bad
+
+
+def get_auth() -> "object":
+    """Return an authorized HTTP session.
+
+    Authentication uses Application Default Credentials via google-auth: the
+    returned session signs each request internally. This never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
+    Authenticate once with: gcloud auth application-default login
+    """
     try:
-        result = subprocess.run(
-            ["gcloud", "auth", "application-default", "print-access-token"],
-            capture_output=True, text=True, check=True,
-        )
-        token = result.stdout.strip()
-    except subprocess.CalledProcessError:
+        import google.auth
+        from google.auth.exceptions import DefaultCredentialsError
+        from google.auth.transport.requests import AuthorizedSession
+    except ImportError:
+        print("Missing dependency. Install with: pip install google-auth requests", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        credentials, _ = google.auth.default(scopes=SCOPES)
+    except DefaultCredentialsError:
         print("GCP authentication required. Run: gcloud auth application-default login", file=sys.stderr)
         sys.exit(1)
 
+    return AuthorizedSession(credentials)
+
+
+def _request(session, url: str, payload: dict | None = None) -> dict:
     try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            capture_output=True, text=True, check=True,
-        )
-        project = result.stdout.strip()
-        if not project or project == "(unset)":
-            print("No GCP project configured. Run: gcloud config set project <project-id>", file=sys.stderr)
-            sys.exit(1)
-    except subprocess.CalledProcessError:
-        print("Could not read GCP project.", file=sys.stderr)
+        resp = session.post(url, json=payload, timeout=60) if payload is not None \
+            else session.get(url, timeout=60)
+    except Exception as e:
+        print(f"Network error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    return token, project
-
-
-def _request(url: str, token: str, payload: dict | None = None) -> dict:
-    data = json.dumps(payload).encode() if payload else None
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            print("Authentication rejected (401). Run: gcloud auth application-default login", file=sys.stderr)
-            sys.exit(1)
+    if resp.status_code == 401:
+        print("Authentication rejected (401). Run: gcloud auth application-default login", file=sys.stderr)
+        sys.exit(1)
+    if resp.status_code >= 400:
         try:
-            msg = json.loads(e.read().decode()).get("error", {}).get("message", f"HTTP {e.code}")
+            msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
         except Exception:
-            msg = f"HTTP {e.code}"
+            msg = f"HTTP {resp.status_code}"
         print(f"API error: {msg}", file=sys.stderr)
         sys.exit(1)
-    except urllib.error.URLError as e:
-        print(f"Network error: {e.reason}", file=sys.stderr)
+    return resp.json()
+
+
+def assert_query_in_scope(sql: str, session) -> None:
+    """Ask BigQuery (via a dry run, which neither executes nor bills) which tables
+    the query reads, then refuse to run it if any lie outside the locked dataset.
+
+    This is the authoritative dataset boundary: BigQuery, not this script, resolves
+    every referenced table, so comma joins, subqueries, CTEs, wildcards, and views
+    are all covered."""
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    resp = _request(session, url, {
+        "query": sql,
+        "useLegacySql": False,
+        "dryRun": True,
+        "maximumBytesBilled": str(MAX_BYTES_BILLED),
+    })
+    referenced = resp.get("statistics", {}).get("query", {}).get("referencedTables", [])
+    if not referenced:
+        print(
+            "Refusing to run: failed to identify which tables this query reads, so "
+            "the dataset boundary cannot be verified. The query is not run.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    bad = out_of_scope_tables(referenced)
+    if bad:
+        print(
+            f"Refusing to run: query reads {', '.join(bad)}, outside the allowed "
+            f"dataset. This skill may only read tables and views in {PROJECT}.{DATASET}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
-def run_query(sql: str, token: str, project: str) -> list[dict]:
-    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{project}/queries"
-    resp = _request(url, token, {"query": sql, "useLegacySql": False, "timeoutMs": 30000})
+def run_query(sql: str, session) -> list[dict]:
+    assert_query_in_scope(sql, session)
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    resp = _request(session, url, {
+        "query": sql,
+        "useLegacySql": False,
+        "timeoutMs": 30000,
+        "maximumBytesBilled": str(MAX_BYTES_BILLED),
+        "maxResults": MAX_RESULT_ROWS,
+    })
     while not resp.get("jobComplete"):
         job_id = resp["jobReference"]["jobId"]
         resp = _request(
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/{project}"
+            session,
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}"
             f"/queries/{job_id}?timeoutMs=30000",
-            token,
         )
     fields = resp.get("schema", {}).get("fields", [])
     rows = resp.get("rows", [])
@@ -110,16 +215,17 @@ def format_results(rows: list[dict]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a direct SQL query against BigQuery.")
+    parser = argparse.ArgumentParser(description="Run a read-only SQL query against the CX tables.")
     parser.add_argument("--sql", required=True,
-                        help="SQL query to run. Reference tables by full name, e.g. mozdata.customer_experience.<table>.")
+                        help=f"Read-only SELECT over {PROJECT}.{DATASET}.<index>. {{project}} is allowed as a placeholder.")
     args = parser.parse_args()
 
-    token, project = get_auth()
-    sql = args.sql
+    sql = args.sql.replace("{project}", PROJECT)
+    assert_select_only(sql)
 
+    session = get_auth()
     print("Running query...", file=sys.stderr, flush=True)
-    rows = run_query(sql, token, project)
+    rows = run_query(sql, session)
     print(f"  {len(rows)} rows returned.", file=sys.stderr)
     print(format_results(rows))
 

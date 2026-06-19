@@ -1,8 +1,6 @@
 import importlib.util
-import json
-import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 spec = importlib.util.spec_from_file_location("embed", "skills/embed/scripts/embed.py")
 embed_module = importlib.util.module_from_spec(spec)
@@ -10,28 +8,27 @@ spec.loader.exec_module(embed_module)
 embed = embed_module.embed
 
 
-def _mock_response(values):
-    body = json.dumps({"predictions": [{"embeddings": {"values": values}}]}).encode()
+def _mock_session(values):
+    """A fake AuthorizedSession whose POST returns the given embedding values."""
     resp = MagicMock()
-    resp.read.return_value = body
-    resp.__enter__ = lambda s: s
-    resp.__exit__ = MagicMock(return_value=False)
-    return resp
+    resp.status_code = 200
+    resp.json.return_value = {"predictions": [{"embeddings": {"values": values}}]}
+    session = MagicMock()
+    session.post.return_value = resp
+    return session
 
 
 class TestEmbed(unittest.TestCase):
 
-    @patch("urllib.request.urlopen")
-    def test_returns_floats(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response([0.1, 0.2, 0.3])
-        result = embed("test question", token="tok", project="proj")
+    def test_returns_floats(self):
+        session = _mock_session([0.1, 0.2, 0.3])
+        result = embed("test question", session=session)
         self.assertEqual(result, [0.1, 0.2, 0.3])
 
-    @patch("urllib.request.urlopen")
-    def test_no_null_values(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response([0.1, None, 0.3])
+    def test_no_null_values(self):
+        session = _mock_session([0.1, None, 0.3])
         with self.assertRaises(SystemExit):
-            embed("test question", token="tok", project="proj")
+            embed("test question", session=session)
 
 
 if __name__ == "__main__":

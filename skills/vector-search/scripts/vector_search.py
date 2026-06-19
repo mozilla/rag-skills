@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Runs VECTOR_SEARCH against any BigQuery table with an embedding column.
+Runs VECTOR_SEARCH against the Customer Experience retrieval indexes.
+
+This skill can only ever read tables and views in mozdata.customer_experience;
+any other project or dataset is rejected. The dataset boundary is enforced
+authoritatively by asking BigQuery (via a dry run) which tables the query reads.
 
 Usage:
     python scripts/vector_search.py \
         --embedding-file /tmp/embedding.json \
-        --table project.dataset.table_name \
+        --table mozdata.customer_experience.<index> \
         [--embedding-column embedding] \
         [--columns col1,col2,...] \
         [--label "Display Name"] \
@@ -14,84 +18,195 @@ Usage:
         [--filter column:value] \
         [--top-k 5]
 
+Safety:
+    - The query embedding, dates, and filter values are passed to BigQuery as typed
+      query parameters (never interpolated into the SQL text).
+    - Project/dataset/table/column names are SQL identifiers (which cannot be
+      parameters). The dataset is locked to mozdata.customer_experience, table and
+      column names must be plain identifiers (no SQL metacharacters), and a dry
+      run confirms BigQuery reads nothing outside the dataset. Columns that do not
+      exist are rejected by BigQuery itself.
+
 Prerequisites:
-    Google Cloud SDK (gcloud CLI) with application-default credentials.
-    gcloud auth application-default login
-    gcloud config set project <project-id>
+    Python packages: google-auth, requests  ->  pip install google-auth requests
+    Application Default Credentials, set up once with:
+        gcloud auth application-default login
+
+    Authentication is delegated to the google-auth library: it loads and refreshes
+    the credentials and attaches them to each request. This script never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
 """
 
 import argparse
 import json
 import re
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 
 DEFAULT_TOP_K = 5
 DEFAULT_EMBEDDING_COLUMN = "embedding"
 
+# Least-privilege scope: read-only BigQuery access (no write/DDL at the token level).
+SCOPES = ["https://www.googleapis.com/auth/bigquery.readonly"]
 
-def get_auth() -> tuple[str, str]:
+# maximumBytesBilled makes BigQuery cancel (and not bill) any query that would
+# scan more than this, capping runaway-cost scans. (Row count is already bounded
+# by top_k.)
+MAX_BYTES_BILLED = 50 * 2**30   # 50 GiB
+
+# The only project / dataset this skill may ever touch.
+PROJECT = "mozdata"
+DATASET = "customer_experience"
+
+# Table and column names are SQL identifiers and cannot be bound as parameters, so
+# they are written into the SQL text. To make that safe, every identifier must match
+# this pattern — a plain name with no dots, quotes, spaces, or other metacharacters —
+# so nothing can break out of the identifier position. Whether a column actually
+# exists is left to BigQuery (the query fails cleanly if it does not).
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def get_auth() -> "object":
+    """Return an authorized HTTP session.
+
+    Authentication uses Application Default Credentials via google-auth: the
+    returned session signs each request internally. This never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
+    Authenticate once with: gcloud auth application-default login
+    """
     try:
-        result = subprocess.run(
-            ["gcloud", "auth", "application-default", "print-access-token"],
-            capture_output=True, text=True, check=True,
-        )
-        token = result.stdout.strip()
-    except subprocess.CalledProcessError:
+        import google.auth
+        from google.auth.exceptions import DefaultCredentialsError
+        from google.auth.transport.requests import AuthorizedSession
+    except ImportError:
+        print("Missing dependency. Install with: pip install google-auth requests", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        credentials, _ = google.auth.default(scopes=SCOPES)
+    except DefaultCredentialsError:
         print("GCP authentication required. Run: gcloud auth application-default login", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            capture_output=True, text=True, check=True,
+    return AuthorizedSession(credentials)
+
+
+def resolve_table(table_ref: str) -> str:
+    """Validate `table_ref` is a table or view in the locked project/dataset and
+    return the canonical `mozdata.customer_experience.<name>`. Exit on anything else.
+
+    Any table or view in the dataset is allowed; the project and dataset are locked,
+    and the name must be a plain identifier. The dry run later confirms the resolved
+    query reads nothing outside the dataset."""
+    parts = table_ref.strip("`").split(".")
+    name = parts[-1]
+    if len(parts) >= 2 and parts[-2] != DATASET:
+        print(f"Dataset not allowed: only {DATASET} is permitted.", file=sys.stderr)
+        sys.exit(1)
+    if len(parts) == 3 and parts[0] != PROJECT:
+        print(f"Project not allowed: only {PROJECT} is permitted.", file=sys.stderr)
+        sys.exit(1)
+    if len(parts) > 3 or not _IDENTIFIER_RE.match(name):
+        print(
+            f"Table not allowed: {table_ref}. This skill may only read a table or "
+            f"view in {PROJECT}.{DATASET}.",
+            file=sys.stderr,
         )
-        project = result.stdout.strip()
-        if not project or project == "(unset)":
-            print("No GCP project configured. Run: gcloud config set project <project-id>", file=sys.stderr)
-            sys.exit(1)
-    except subprocess.CalledProcessError:
-        print("Could not read GCP project.", file=sys.stderr)
+        sys.exit(1)
+    return f"{PROJECT}.{DATASET}.{name}"
+
+
+def _check_identifier(col: str, kind: str) -> None:
+    """Reject anything that is not a plain SQL identifier, so a column/table name
+    cannot break out of its position in the SQL text."""
+    if not _IDENTIFIER_RE.match(col):
+        print(f"Invalid {kind} '{col}': must be a plain column name.", file=sys.stderr)
         sys.exit(1)
 
-    return token, project
+
+def _scalar_param(name: str, type_: str, value: str) -> dict:
+    return {
+        "name": name,
+        "parameterType": {"type": type_},
+        "parameterValue": {"value": value},
+    }
 
 
-def _request(url: str, token: str, payload: dict | None = None) -> dict:
-    data = json.dumps(payload).encode() if payload else None
-    req = urllib.request.Request(url, data=data, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    })
+def _request(session, url: str, payload: dict | None = None) -> dict:
     try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            print("Authentication rejected (401). Run: gcloud auth application-default login", file=sys.stderr)
-            sys.exit(1)
+        resp = session.post(url, json=payload, timeout=60) if payload is not None \
+            else session.get(url, timeout=60)
+    except Exception as e:
+        print(f"Network error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if resp.status_code == 401:
+        print("Authentication rejected (401). Run: gcloud auth application-default login", file=sys.stderr)
+        sys.exit(1)
+    if resp.status_code >= 400:
         try:
-            msg = json.loads(e.read().decode()).get("error", {}).get("message", f"HTTP {e.code}")
+            msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
         except Exception:
-            msg = f"HTTP {e.code}"
+            msg = f"HTTP {resp.status_code}"
         print(f"API error: {msg}", file=sys.stderr)
         sys.exit(1)
-    except urllib.error.URLError as e:
-        print(f"Network error: {e.reason}", file=sys.stderr)
+    return resp.json()
+
+
+def out_of_scope_tables(referenced: list[dict]) -> list[str]:
+    """Given BigQuery's `referencedTables` for a query, return the fully-qualified
+    names of any that fall outside the locked dataset. Empty list means in-bounds."""
+    bad = []
+    for t in referenced:
+        if t.get("projectId") != PROJECT or t.get("datasetId") != DATASET:
+            bad.append(f"{t.get('projectId')}.{t.get('datasetId')}.{t.get('tableId')}")
+    return bad
+
+
+def assert_query_in_scope(sql: str, session, params: list | None = None) -> None:
+    """Ask BigQuery (via a dry run, which neither executes nor bills) which tables
+    the query reads, then refuse to run it if any lie outside the locked dataset."""
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    body = {"query": sql, "useLegacySql": False, "dryRun": True,
+            "maximumBytesBilled": str(MAX_BYTES_BILLED)}
+    if params:
+        body["parameterMode"] = "NAMED"
+        body["queryParameters"] = params
+    resp = _request(session, url, body)
+    referenced = resp.get("statistics", {}).get("query", {}).get("referencedTables", [])
+    if not referenced:
+        print(
+            "Refusing to run: failed to identify which tables this query reads, so "
+            "the dataset boundary cannot be verified. The query is not run.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    bad = out_of_scope_tables(referenced)
+    if bad:
+        print(
+            f"Refusing to run: query reads {', '.join(bad)}, outside the allowed "
+            f"dataset. This skill may only read tables and views in {PROJECT}.{DATASET}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
-def _bq_query(sql: str, token: str, project: str) -> list[dict]:
-    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{project}/queries"
-    resp = _request(url, token, {"query": sql, "useLegacySql": False, "timeoutMs": 30000})
+def _bq_query(sql: str, session, params: list | None = None) -> list[dict]:
+    assert_query_in_scope(sql, session, params)
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    body = {"query": sql, "useLegacySql": False, "timeoutMs": 30000,
+            "maximumBytesBilled": str(MAX_BYTES_BILLED)}
+    if params:
+        body["parameterMode"] = "NAMED"
+        body["queryParameters"] = params
+    resp = _request(session, url, body)
     while not resp.get("jobComplete"):
         job_id = resp["jobReference"]["jobId"]
         resp = _request(
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/{project}"
+            session,
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}"
             f"/queries/{job_id}?timeoutMs=30000",
-            token,
         )
     fields = resp.get("schema", {}).get("fields", [])
     rows = resp.get("rows", [])
@@ -99,46 +214,75 @@ def _bq_query(sql: str, token: str, project: str) -> list[dict]:
     return [dict(zip(col_names, (cell.get("v") for cell in row["f"]))) for row in rows]
 
 
-def _sanitize(value: str) -> str:
-    return re.sub(r"['\";\\]", "", value)
-
-
 def search(
     table: str,
     embedding_column: str,
     columns: list[str] | None,
     embedding: list[float],
-    token: str,
-    project: str,
+    session,
     top_k: int,
     date_column: str | None,
     date_from: str | None,
     date_to: str | None,
     filters: list[tuple[str, str]],
 ) -> list[dict]:
-    literal = "[" + ",".join(str(v) for v in embedding) + "]"
+    # Lock the table to the dataset and require every identifier to be a plain name
+    # (so it cannot break out of the SQL); the dry run in _bq_query then confirms the
+    # resolved query reads nothing outside the dataset.
+    table = resolve_table(table)
+    _check_identifier(embedding_column, "embedding column")
+    if columns:
+        for c in columns:
+            _check_identifier(c, "column")
+    if date_column:
+        _check_identifier(date_column, "date column")
+    for col, _ in filters:
+        _check_identifier(col, "filter column")
+
+    # Validate values that will be bound as parameters.
+    try:
+        embedding = [float(v) for v in embedding]
+    except (TypeError, ValueError):
+        print("Embedding must be a list of numbers.", file=sys.stderr)
+        sys.exit(1)
+    for d in (date_from, date_to):
+        if d is not None and not _DATE_RE.match(d):
+            print(f"Invalid date '{d}': expected YYYY-MM-DD.", file=sys.stderr)
+            sys.exit(1)
+
     col_expr = ", ".join(f"base.{c}" for c in columns) if columns else "base.*"
+
+    # Values are passed as typed query parameters, never interpolated into the SQL.
+    params = [{
+        "name": "query_embedding",
+        "parameterType": {"type": "ARRAY", "arrayType": {"type": "FLOAT64"}},
+        "parameterValue": {"arrayValues": [{"value": repr(v)} for v in embedding]},
+    }]
 
     conds = []
     if date_column and date_from:
-        conds.append(f"DATE(base.{_sanitize(date_column)}) >= '{_sanitize(date_from)}'")
+        conds.append(f"DATE(base.{date_column}) >= @date_from")
+        params.append(_scalar_param("date_from", "DATE", date_from))
     if date_column and date_to:
-        conds.append(f"DATE(base.{_sanitize(date_column)}) <= '{_sanitize(date_to)}'")
-    for col, val in filters:
-        conds.append(f"LOWER(base.{_sanitize(col)}) LIKE LOWER('%{_sanitize(val)}%')")
+        conds.append(f"DATE(base.{date_column}) <= @date_to")
+        params.append(_scalar_param("date_to", "DATE", date_to))
+    for i, (col, val) in enumerate(filters):
+        pname = f"filter_{i}"
+        conds.append(f"LOWER(base.{col}) LIKE LOWER(@{pname})")
+        params.append(_scalar_param(pname, "STRING", f"%{val}%"))
 
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     sql = f"""
     SELECT {col_expr}, distance
     FROM VECTOR_SEARCH(
         TABLE `{table}`, '{embedding_column}',
-        (SELECT {literal} AS {embedding_column}),
-        top_k => {top_k}, distance_type => 'COSINE'
+        (SELECT @query_embedding AS {embedding_column}),
+        top_k => {int(top_k)}, distance_type => 'COSINE'
     )
     {where}
     ORDER BY distance ASC
     """
-    return _bq_query(sql, token, project)
+    return _bq_query(sql, session, params)
 
 
 def format_results(rows: list[dict], label: str) -> str:
@@ -152,18 +296,12 @@ def format_results(rows: list[dict], label: str) -> str:
     return "\n".join(parts)
 
 
-def resolve_table(table_ref: str, project: str) -> str:
-    if table_ref.count(".") == 1:
-        return f"{project}.{table_ref}"
-    return table_ref
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Vector search against any BigQuery embedding table.")
+    parser = argparse.ArgumentParser(description="Vector search against a Customer Experience index.")
     parser.add_argument("--embedding-file", required=True,
                         help="Path to JSON file containing the embedding vector.")
     parser.add_argument("--table", required=True,
-                        help="BigQuery table: 'dataset.table' or 'project.dataset.table'.")
+                        help=f"A table or view in {PROJECT}.{DATASET} (e.g. {PROJECT}.{DATASET}.kitsune_retrieval_index).")
     parser.add_argument("--embedding-column", default=DEFAULT_EMBEDDING_COLUMN,
                         help=f"Name of the embedding column (default: {DEFAULT_EMBEDDING_COLUMN}).")
     parser.add_argument("--columns",
@@ -199,13 +337,12 @@ def main() -> None:
         col, _, val = filt.partition(":")
         parsed_filters.append((col.strip(), val.strip()))
 
-    token, project = get_auth()
-    table_id = resolve_table(args.table, project)
     label = args.label or args.table.split(".")[-1]
 
+    session = get_auth()
     print(f"Searching {label}...", file=sys.stderr, flush=True)
     rows = search(
-        table_id, args.embedding_column, columns, embedding, token, project,
+        args.table, args.embedding_column, columns, embedding, session,
         args.top_k, args.date_column, args.s, args.e, parsed_filters,
     )
     print(f"  Retrieved {len(rows)} results.", file=sys.stderr)
