@@ -3,9 +3,6 @@
 **Table:** `mozdata.customer_experience.zendesk_retrieval_index`
 **Purpose:** Semantic search index over Zendesk support tickets, pre-embedded for vector similarity queries.
 
-> LLM-derived columns are prefixed `ticket_*` on this table (e.g. `ticket_category_llm`). The prefix differs per source — Kitsune uses `question_*`, Knowledge Base uses `article_*`.
-> **`creation_date` is a `DATE`** (not a TIMESTAMP) — filter with `creation_date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'` directly, no `DATE(...)` wrapper needed.
-
 ## Columns used by the orchestrator
 
 | Column | BigQuery Type | Description |
@@ -13,52 +10,51 @@
 | `title` | STRING | Ticket subject or title |
 | `content` | STRING | Full ticket body text |
 | `ticket_summary_llm` | STRING | LLM-generated summary of the ticket |
-| `ticket_category_llm` | STRING | LLM-generated high-level category |
-| `ticket_sentiment_score` | FLOAT64 | Sentiment score -1.0 to 1.0 — **not reliable as a user sentiment signal; use Kitsune for sentiment analysis** |
-| `product` | STRING | Firefox product the ticket relates to |
-| `star_rating` | STRING | User-provided star rating for the support interaction |
+| `ticket_category_llm` | STRING | LLM-generated high-level category (Zendesk's main topic/category signal) |
+| `ticket_sentiment_score` | FLOAT64 | Sentiment score -1.0 to 1.0 — **not reliable as a user-sentiment signal; use Kitsune `question_sentiment_score` for sentiment** |
+| `product` | STRING | Firefox product the ticket relates to (no Firefox Desktop tickets) |
+| `star_rating` | STRING | Star rating for the support interaction (`5star`…`1star`; mostly empty) |
 | `recency_score` | FLOAT64 | Recency weight for ranking |
 
 ## Columns available for filtering (not fetched)
 
 | Column | BigQuery Type | Description |
 |--------|--------------|-------------|
-| `creation_date` | DATE | When the ticket was created — used by date-range filters (`creation_date BETWEEN ...`) |
-| `locale` | STRING | Ticket language/locale — used by the `locale` filter |
-| `custom_category` | STRING | Source-assigned category (human/system, not LLM) |
-| `embedding` | FLOAT64 REPEATED | Vector for similarity search (`gemini-embedding-001`) |
+| `creation_date` | DATE | When the ticket was created — used by `--s` / `--e` date filters |
+| `locale` | STRING | Ticket language/locale — used by `--filter "locale:<code>"` |
+| `embedding` | ARRAY\<FLOAT64\> | Vector for similarity search (`gemini-embedding-001`) |
 
 ## Full schema
 
-| Column | Type | Mode | Description |
-|--------|------|------|-------------|
-| `creation_date` | DATE | NULLABLE | When the ticket was created |
-| `ticket_id` | INT64 | NULLABLE | Zendesk ticket identifier |
-| `title` | STRING | NULLABLE | Ticket subject or title |
-| `content` | STRING | NULLABLE | Full ticket body text |
-| `status` | STRING | NULLABLE | Ticket status (e.g. solved, closed, open) |
-| `last_solved_at` | TIMESTAMP | NULLABLE | When the ticket was most recently solved |
-| `closed_at` | TIMESTAMP | NULLABLE | When the ticket was closed |
-| `resolution_latency_seconds` | INT64 | NULLABLE | Seconds from creation to resolution |
-| `star_rating` | STRING | NULLABLE | User-provided star rating for the support interaction |
-| `locale` | STRING | NULLABLE | Ticket language/locale |
-| `custom_country` | STRING | NULLABLE | Source-assigned country |
-| `group_name` | STRING | NULLABLE | Support group that handled the ticket |
-| `via_channel` | STRING | NULLABLE | Channel through which the ticket was submitted |
-| `custom_category` | STRING | NULLABLE | Source-assigned category (not LLM) |
-| `automation_category` | INT64 | NULLABLE | Automation-assigned category tag (numeric) |
-| `type` | STRING | NULLABLE | Ticket type |
-| `ticket_summary_llm` | STRING | NULLABLE | LLM-generated summary |
-| `ticket_category_llm` | STRING | NULLABLE | LLM-generated category |
-| `ticket_language_llm` | STRING | NULLABLE | LLM-detected language |
-| `ticket_entities_llm` | STRING | REPEATED | LLM-extracted entities (ARRAY) |
-| `ticket_topics_llm` | STRING | REPEATED | LLM-generated topic tags (ARRAY) |
-| `ticket_sentiment_score` | FLOAT64 | NULLABLE | Sentiment score -1 to 1 (not reliable for user sentiment) |
-| `embedding` | FLOAT64 | REPEATED | Vector for similarity search (`gemini-embedding-001`) |
-| `metadata` | RECORD | NULLABLE | Pipeline metadata (model/prompt/embedding versions, timestamps, failure reasons) |
-| `product_version` | STRING | NULLABLE | Product version associated with the ticket |
-| `product` | STRING | NULLABLE | Firefox product the ticket relates to |
-| `recency_score` | FLOAT64 | NULLABLE | Recency weight for ranking |
+| Column | Type | Description |
+|--------|------|-------------|
+| `creation_date` | DATE | When the ticket was created (partition / date filter) |
+| `ticket_id` | INT64 | Unique ticket key |
+| `title` | STRING | Ticket subject or title |
+| `content` | STRING | Full ticket body text |
+| `status` | STRING | Ticket status (~97% `closed` — weak signal) |
+| `last_solved_at` | TIMESTAMP | When the ticket was last solved |
+| `closed_at` | TIMESTAMP | When the ticket was closed |
+| `resolution_latency_seconds` | INT64 | Time to resolution (NULL = unresolved) |
+| `star_rating` | STRING | User-provided star rating (`5star`…`1star`; ~74% empty) |
+| `locale` | STRING | Ticket language/locale |
+| `custom_country` | STRING | Country (sparse) |
+| `group_name` | STRING | Support group that handled the ticket |
+| `via_channel` | STRING | Channel through which the ticket was submitted |
+| `custom_category` | STRING | Support tag (`accounts`/`technical`/`payment`…; sparse) |
+| `automation_category` | INT64 | Opaque automation flag — avoid |
+| `type` | STRING | Ticket type (single-valued: `ticket`) |
+| `ticket_summary_llm` | STRING | LLM-generated summary |
+| `ticket_category_llm` | STRING | LLM-generated category (high-cardinality long tail) |
+| `ticket_language_llm` | STRING | LLM-detected language (prefer `locale`) |
+| `ticket_entities_llm` | ARRAY\<STRING\> | LLM-extracted entities — **array; use `UNNEST`, not `--filter`** |
+| `ticket_topics_llm` | ARRAY\<STRING\> | LLM-generated topic tags (Zendesk's topic signal) — **array; use `UNNEST`, not `--filter`** |
+| `ticket_sentiment_score` | FLOAT64 | Sentiment score -1 to 1 — **do not use** (unreliable for Zendesk) |
+| `embedding` | ARRAY\<FLOAT64\> | Vector for similarity search (`gemini-embedding-001`) — never SELECT/display |
+| `metadata` | STRUCT | Provenance (model/prompt/embedding versions) — not for analysis |
+| `product_version` | STRING | App-version string (~97% empty; not Firefox releases) — unusable |
+| `product` | STRING | Firefox product the ticket relates to |
+| `recency_score` | FLOAT64 | Recency weight for ranking |
 
 ## Embedding model
 
@@ -68,8 +64,7 @@ All embeddings use `gemini-embedding-001` via Vertex AI. The orchestrator embeds
 
 ```sql
 SELECT base.title, base.ticket_summary_llm, base.ticket_category_llm,
-       base.ticket_sentiment_score, base.product, base.star_rating, base.recency_score,
-       distance, 'zendesk' AS _source
+       base.product, base.star_rating, base.recency_score, distance
 FROM VECTOR_SEARCH(
     TABLE `mozdata.customer_experience.zendesk_retrieval_index`,
     'embedding',
@@ -85,7 +80,6 @@ Lower `distance` = more semantically similar to the question.
 
 ## Interpreting Zendesk results
 
-- **Use for:** Understanding what bugs or problems users are reporting, ticket volume by category, product-specific issue patterns.
-- **Do not use for:** Sentiment analysis — `ticket_sentiment_score` here does not reliably reflect user sentiment. Use Kitsune `question_sentiment_score` instead.
-- **`star_rating`** reflects user satisfaction with the support interaction, not with the Firefox product itself.
-- **Categories:** `ticket_category_llm` is the LLM-assigned category; `custom_category` is source-assigned.
+- **Use for:** what bugs/problems users report, ticket volume by category, product-specific issue patterns.
+- **Do not use for:** sentiment — `ticket_sentiment_score` does not reliably reflect user sentiment. Use Kitsune `question_sentiment_score` instead.
+- **`star_rating`** reflects satisfaction with the support interaction, not with the Firefox product itself.

@@ -9,75 +9,87 @@ Output:
     JSON array of floats printed to stdout.
 
 Prerequisites:
-    Google Cloud SDK (gcloud CLI) with application-default credentials.
-    gcloud auth application-default login
-    gcloud config set project <project-id-provided-by-Data-Engineering>
+    Python packages: google-auth, requests  ->  pip install google-auth requests
+    Application Default Credentials, set up once with:
+        gcloud auth application-default login
+
+    Authentication is delegated to the google-auth library: it loads and refreshes
+    the credentials and attaches them to each request. This script never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
 """
 
 import argparse
 import json
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 
 LOCATION = "us-central1"
 EMBEDDING_MODEL = "gemini-embedding-001"
 
+# The only project this skill may ever use (Vertex AI must be enabled here).
+PROJECT = "mozdata"
 
-def get_auth() -> tuple[str, str]:
+# Vertex AI is only reachable with the cloud-platform scope (it has no narrower one).
+SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+
+def get_auth() -> "object":
+    """Return an authorized HTTP session.
+
+    Authentication uses Application Default Credentials via google-auth: the
+    returned session signs each request internally. This never invokes
+    `print-access-token` and never reads, prints, or stores an access token.
+    Authenticate once with: gcloud auth application-default login
+    """
     try:
-        result = subprocess.run(
-            ["gcloud", "auth", "application-default", "print-access-token"],
-            capture_output=True, text=True, check=True,
-        )
-        token = result.stdout.strip()
-    except subprocess.CalledProcessError:
+        import google.auth
+        from google.auth.exceptions import DefaultCredentialsError
+        from google.auth.transport.requests import AuthorizedSession
+    except ImportError:
+        print("Missing dependency. Install with: pip install google-auth requests", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        credentials, _ = google.auth.default(scopes=SCOPES)
+    except DefaultCredentialsError:
         print("GCP authentication required. Run: gcloud auth application-default login", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            capture_output=True, text=True, check=True,
-        )
-        project = result.stdout.strip()
-        if not project or project == "(unset)":
-            print("No GCP project configured. Run: gcloud config set project <project-id>", file=sys.stderr)
-            sys.exit(1)
-    except subprocess.CalledProcessError:
-        print("Could not read GCP project.", file=sys.stderr)
-        sys.exit(1)
-
-    return token, project
+    return AuthorizedSession(credentials)
 
 
-def embed(question: str, token: str, project: str) -> list[float]:
+def embed(question: str, session) -> list[float]:
     url = (
-        f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
+        f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}"
         f"/locations/{LOCATION}/publishers/google/models/{EMBEDDING_MODEL}:predict"
     )
-    payload = json.dumps({
-        "instances": [{"content": question, "task_type": "RETRIEVAL_QUERY"}]
-    }).encode()
-    req = urllib.request.Request(url, data=payload, headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    })
+    payload = {"instances": [{"content": question, "task_type": "RETRIEVAL_QUERY"}]}
     try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read())
-            values = data["predictions"][0]["embeddings"]["values"]
-        if not values or any(v is None for v in values):
-            print("Embedding API returned null or empty values.", file=sys.stderr)
-            sys.exit(1)
-        return values
-    except urllib.error.HTTPError as e:
-        print(f"API error {e.code}: {e.read().decode()}", file=sys.stderr)
+        resp = session.post(url, json=payload, timeout=60)
+    except Exception as e:
+        print(f"Network error: {e}", file=sys.stderr)
         sys.exit(1)
-    except (KeyError, IndexError):
+
+    if resp.status_code == 401:
+        print("Authentication rejected (401). Run: gcloud auth application-default login", file=sys.stderr)
+        sys.exit(1)
+    if resp.status_code >= 400:
+        try:
+            msg = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+        except Exception:
+            msg = f"HTTP {resp.status_code}"
+        print(f"API error: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        values = resp.json()["predictions"][0]["embeddings"]["values"]
+    except (KeyError, IndexError, ValueError):
         print("Unexpected response from Vertex AI embedding API.", file=sys.stderr)
         sys.exit(1)
+
+    if not values or any(v is None for v in values):
+        print("Embedding API returned null or empty values.", file=sys.stderr)
+        sys.exit(1)
+    return values
 
 
 def main() -> None:
@@ -85,8 +97,8 @@ def main() -> None:
     parser.add_argument("--question", required=True, help="Text to embed.")
     args = parser.parse_args()
 
-    token, project = get_auth()
-    vector = embed(args.question, token, project)
+    session = get_auth()
+    vector = embed(args.question, session)
     print(json.dumps(vector))
 
 

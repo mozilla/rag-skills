@@ -22,17 +22,17 @@ The `knowledge_base_retrieval_index` table contains processed and embedded KB ar
 | Source | User forum posts | Support tickets | Official Mozilla articles |
 | Content | User questions + answers | Bug reports | How-to guides, known issues |
 | Best use | Sentiment, user pain points | Bug identification | What official solutions exist |
-| Sentiment | Reliable user signal | Unreliable | Not user sentiment — article tone only |
-| Date filter | Yes | Yes | **No** — no `creation_date` column |
-| Product filter | Yes | Yes | **No** — no `product` column |
+| Sentiment | Reliable user signal | Unreliable | **No sentiment column** |
+| Date filter | Yes | Yes | **No** `creation_date` — `last_approved_revision_date` (DATE) only |
+| Product filter | Yes | Yes | No scalar `product` — use the `products` slug string with `LIKE '%/firefox/%'` |
 
 ## Known limitations
 
 | Limitation | Impact |
 |-----------|--------|
-| No `creation_date` | Cannot be filtered by creation time; `last_approved_revision_date` (DATE) is available if a date bound is needed |
-| Product is `products` (plural) | Filter by product via the `products` STRING column — there is no singular `product` column |
-| No sentiment column | The KB table has no sentiment field at all — never attribute sentiment to KB articles |
+| No date column | Cannot be filtered by time period — always returns results from the full article corpus |
+| No scalar product column | Filter by product via the `products` slug string (`LIKE '%/firefox/%'`) |
+| No sentiment column | The KB has no sentiment signal at all — never attribute sentiment to KB content |
 | Curated, not exhaustive | Only covers topics that have been formally documented; emerging issues may not yet have articles |
 | Not real-time | Index is periodically refreshed; very recently published articles may not be included |
 

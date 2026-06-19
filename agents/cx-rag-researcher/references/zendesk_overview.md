@@ -22,7 +22,7 @@ The `zendesk_retrieval_index` table contains processed and embedded Zendesk tick
 | Visibility | Public forum | Private support tickets |
 | Content | Questions + community answers | Direct user-to-staff reports |
 | Best use | Sentiment analysis, topic discovery | Bug identification, problem frequency |
-| Sentiment | `ticket_sentiment_score` is reliable | `ticket_sentiment_score` is unreliable — do not use for sentiment |
+| Sentiment | `question_sentiment_score` is reliable | `ticket_sentiment_score` is unreliable — do not use for sentiment |
 | Volume | Higher (public forum) | Lower (direct contact) |
 
 ## Known limitations

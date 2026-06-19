@@ -33,13 +33,13 @@ _spec.loader.exec_module(query)
 
 
 def fetch_schema() -> dict:
-    token, project = query.get_auth()
+    session = query.get_auth()
     table_list = ", ".join(f"'{t}'" for t in TABLES)
     sql = f"""SELECT table_name, column_name, data_type
 FROM `{DATASET}.INFORMATION_SCHEMA.COLUMNS`
 WHERE table_name IN ({table_list})
 ORDER BY table_name, ordinal_position"""
-    rows = query.run_query(sql, token, project)
+    rows = query.run_query(sql, session)
     schema: dict[str, dict[str, str]] = {t: {} for t in TABLES}
     for r in rows:
         schema[r["table_name"]][r["column_name"]] = r["data_type"]

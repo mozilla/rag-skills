@@ -27,7 +27,11 @@ def run_question(question: str) -> str:
         [
             "claude", "-p",
             "--no-session-persistence",
-            "--permission-mode", "bypassPermissions",
+            # NOTE: permissions are intentionally NOT bypassed. The agent operates on
+            # untrusted retrieved content, so running it with bypassPermissions would
+            # turn a prompt injection into unrestricted command execution. Configure an
+            # explicit allowlist for the skill commands instead if this needs to run
+            # non-interactively.
             "--plugin-dir", str(PLUGIN_DIR),
             prompt,
         ],
