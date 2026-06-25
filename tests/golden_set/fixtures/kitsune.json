@@ -1,0 +1,14 @@
+{
+  "sql_ranking": [
+    {"topic": "passwords", "posts": 74, "avg_question_sentiment_score": -0.41},
+    {"topic": "sync", "posts": 58, "avg_question_sentiment_score": -0.33},
+    {"topic": "tabs", "posts": 51, "avg_question_sentiment_score": -0.22},
+    {"topic": "vpn", "posts": 39, "avg_question_sentiment_score": -0.15},
+    {"topic": "bookmarks", "posts": 28, "avg_question_sentiment_score": -0.18}
+  ],
+  "documents": [
+    {"title": "Saved passwords disappeared after update", "content": "After updating Firefox Desktop my saved logins vanished from the Password Manager and I cannot get them back.", "product": "Firefox Desktop", "locale": "en", "creation_date": "2026-06-23", "question_sentiment_score": -0.6},
+    {"title": "No puedo sincronizar mis contrasenas", "content": "Las contrasenas no se sincronizan entre mi telefono y mi portatil, es muy frustrante.", "product": "Firefox", "locale": "es", "creation_date": "2026-06-23", "question_sentiment_score": -0.5},
+    {"title": "Sync keeps signing me out", "content": "Firefox Sync repeatedly logs me out and fails to sync tabs and passwords.", "product": "Firefox Desktop", "locale": "en", "creation_date": "2026-06-24", "question_sentiment_score": -0.4}
+  ]
+}

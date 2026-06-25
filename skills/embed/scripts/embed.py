@@ -10,8 +10,10 @@ Output:
 
 Prerequisites:
     Python packages: google-auth, requests  ->  pip install google-auth requests
-    Application Default Credentials, set up once with:
-        gcloud auth application-default login
+    The Google Cloud account currently authenticated via `gcloud auth application-default
+    login` is used only to impersonate the service account defined in SERVICE_ACCOUNT and
+    requires the roles/iam.serviceAccountTokenCreator role on that service account. Using
+    the service account enforces limited Vertex AI access.
 
     Authentication is delegated to the google-auth library: it loads and refreshes
     the credentials and attaches them to each request. This script never invokes
@@ -25,23 +27,31 @@ import sys
 LOCATION = "us-central1"
 EMBEDDING_MODEL = "gemini-embedding-001"
 
-# The only project this skill may ever use (Vertex AI must be enabled here).
-PROJECT = "mozdata"
+# Compute project for Vertex AI: the embedding model runs and bills here (the
+# service account's aiplatform.user role lives in this project, and Vertex AI must
+# be enabled here). This skill reads no BigQuery data, so there is no data project.
+PROJECT = "moz-fx-data-proto"
 
 # Vertex AI is only reachable with the cloud-platform scope (it has no narrower one).
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
+# This skill connects to Vertex AI using a service account.
+# Your own Google Cloud credentials are only used to create a new and temporary
+# access token on behalf of the service account.
+SERVICE_ACCOUNT = "bq-dev-sandbox@moz-fx-data-proto.iam.gserviceaccount.com"
+
 
 def get_auth() -> "object":
-    """Return an authorized HTTP session.
+    """Return an authorized HTTP session that impersonates a service account.
 
-    Authentication uses Application Default Credentials via google-auth: the
-    returned session signs each request internally. This never invokes
-    `print-access-token` and never reads, prints, or stores an access token.
-    Authenticate once with: gcloud auth application-default login
+    Your Application Default Credentials are used only to mint a short-lived,
+    scoped access token for the service account defined in SERVICE_ACCOUNT; every
+    request is signed with that token, so Vertex AI is reached as the service
+    account, not as you. No token is ever read, printed, or stored.
     """
     try:
         import google.auth
+        from google.auth import impersonated_credentials
         from google.auth.exceptions import DefaultCredentialsError
         from google.auth.transport.requests import AuthorizedSession
     except ImportError:
@@ -49,11 +59,16 @@ def get_auth() -> "object":
         sys.exit(1)
 
     try:
-        credentials, _ = google.auth.default(scopes=SCOPES)
+        source, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     except DefaultCredentialsError:
         print("GCP authentication required. Run: gcloud auth application-default login", file=sys.stderr)
         sys.exit(1)
 
+    credentials = impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=SERVICE_ACCOUNT,
+        target_scopes=SCOPES,
+    )
     return AuthorizedSession(credentials)
 
 

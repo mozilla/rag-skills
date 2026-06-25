@@ -76,11 +76,13 @@ FORBIDDEN = [
 PREFIX_TO_TABLE = {p: t for t, p in PREFIX.items()}
 CITED_LLM_RE = re.compile(r"\b(question|ticket|article)_[a-z0-9_]*?(?:_llm|_sentiment_score)\b")
 
-ADC_FILE = Path(os.path.expanduser("~/.config/gcloud/application_default_credentials.json"))
+APPLICATION_CREDENTIALS_FILE = Path(os.path.expanduser("~/.config/gcloud/application_default_credentials.json"))
 
 
-def _adc_available() -> bool:
-    return ADC_FILE.exists() or bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+def _application_credentials_available() -> bool:
+    # The live query path impersonates a service account using the default or locally
+    # authenticated credentials; without them, skip rather than fail.
+    return APPLICATION_CREDENTIALS_FILE.exists() or bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
 
 
 def _load_snapshot() -> dict:
@@ -144,7 +146,7 @@ class TestSchemaConventions(unittest.TestCase):
                     f"{doc.name} cites {name}, which is not a column of {table}",
                 )
 
-    @unittest.skipUnless(_adc_available(), "no GCP application-default credentials")
+    @unittest.skipUnless(_application_credentials_available(), "no GCP application-default credentials")
     def test_live_schema_matches_snapshot(self):
         try:
             live = _fetch_live()

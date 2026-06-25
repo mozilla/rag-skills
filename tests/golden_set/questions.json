@@ -1,7 +1,7 @@
 [
   {
     "id": 1,
-    "question": "What are the most common Firefox issues reported by users?",
+    "question": "What are the most common Firefox issues reported by users from 2026-06-23 to 2026-06-24?",
     "expected_mode": "hybrid",
     "expected_sources": ["Kitsune", "Zendesk"],
     "notes": "User feedback question — must use Kitsune and Zendesk, not KB alone. Should use hybrid mode (SQL for ranking + vector for content)."
@@ -15,21 +15,21 @@
   },
   {
     "id": 3,
-    "question": "What were the top 5 topics on Kitsune last month?",
+    "question": "What were the top 5 topics on Kitsune from 2026-06-23 to 2026-06-24?",
     "expected_mode": "sql",
     "expected_sources": ["Kitsune"],
     "notes": "Counting/ranking question — must use SQL only, not vector search."
   },
   {
     "id": 4,
-    "question": "What are Spanish-speaking users saying about Firefox?",
+    "question": "What are Spanish-speaking users saying about Firefox from 2026-06-23 to 2026-06-24?",
     "expected_mode": "hybrid",
     "expected_sources": ["Kitsune", "Zendesk"],
     "notes": "User feedback with locale filter — must apply locale:es filter. Should not use KB."
   },
   {
     "id": 5,
-    "question": "How does what users report about passwords compare to Mozilla's guidance?",
+    "question": "How does what users report about passwords from 2026-06-23 to 2026-06-24 compare to Mozilla's guidance?",
     "expected_mode": "hybrid",
     "expected_sources": ["Kitsune", "Zendesk", "Knowledge Base"],
     "notes": "Comparison question — must use all three sources. KB for official guidance, Kitsune/Zendesk for user experience."

@@ -11,13 +11,13 @@ This skill is locked to **`mozdata.customer_experience`** — it can read any ta
 
 ## Authentication
 
-Read-only BigQuery access only — authenticate with the read-only scope:
+This skill connects to BigQuery using a service account — read-only access is enforced on the impersonated token. Just log in:
 
 ```bash
-gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly
+gcloud auth application-default login
 ```
 
-(If you also use the `embed` skill in the same session, it needs Vertex AI — append `,https://www.googleapis.com/auth/cloud-platform` to the scopes so one login covers both.)
+Your authenticated BigQuery credentials are only used to create a new and temporary read-only access token on behalf of the service account defined in `SERVICE_ACCOUNT`, which requires the `roles/iam.serviceAccountTokenCreator` role on that service account. Your login no longer needs `--scopes`.
 
 ## Usage
 
@@ -91,7 +91,7 @@ passwords      74
 
 | Symptom | Fix |
 |---------|-----|
-| `Authentication rejected (401)` / `GCP authentication required` | Run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly` |
+| `Authentication rejected (401)` / `GCP authentication required` | Re-run `gcloud auth application-default login`; confirm you have `roles/iam.serviceAccountTokenCreator` on the service account in `SERVICE_ACCOUNT` |
 | `Missing dependency` | `pip install google-auth requests` |
 | `Refusing to run … outside the allowed dataset` / `Only read-only SELECT` | Query only tables or views in `mozdata.customer_experience` with a single read-only SELECT |
 | `No results` | Check date range, table name, and filter values |

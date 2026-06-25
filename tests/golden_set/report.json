@@ -1,0 +1,164 @@
+[
+  {
+    "id": 1,
+    "question": "What are the most common Firefox issues reported by users from 2026-06-23 to 2026-06-24?",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "The agent drew on both Kitsune forum data and Zendesk tickets, exactly the expected user-feedback sources."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "The response combines numeric rankings/counts (SQL) with descriptive content of what users experienced (vector), consistent with hybrid mode."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "The agent explicitly attributes all sentiment figures exclusively to Kitsune and does not derive sentiment from Zendesk."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "Figures are presented as retrieved per-topic counts and sentiment with consistent attribution, with no statistics that could not plausibly come from the queried tables."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "The response closes by inviting the user to refine the search or dig deeper into specific topics."
+      }
+    }
+  },
+  {
+    "id": 2,
+    "question": "What does Mozilla recommend for Firefox sync problems?",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "The question asks what Mozilla recommends (official guidance), and the agent used only Knowledge Base articles."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "Official guidance was answered via semantic retrieval of KB articles with no counts or rankings, consistent with vector mode."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "The response draws no sentiment conclusions from Zendesk; it only offers Zendesk as an optional future comparison."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "The agent explicitly removed the unsupported ~70% stale-articles statistic and grounded its answer in the retrieved articles."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "The response ends by inviting the user to dig into troubleshooting steps or compare with forum/ticket data."
+      }
+    }
+  },
+  {
+    "id": 3,
+    "question": "What were the top 5 topics on Kitsune from 2026-06-23 to 2026-06-24?",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "The agent queried Kitsune only, which is the correct source for SUMO forum topic/sentiment data."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "This is a ranking/counting question and the response uses SQL aggregation returning post counts and averaged sentiment."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "Sentiment is drawn entirely from Kitsune forum posts, with Zendesk only mentioned as an optional future comparison."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "The numbers are presented as aggregated query results consistent with a SQL ranking, with no claims of data the source could not provide."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "The response ends with an explicit invitation to refine or dig deeper into the passwords threads, Zendesk, or the Knowledge Base."
+      }
+    }
+  },
+  {
+    "id": 4,
+    "question": "What are Spanish-speaking users saying about Firefox from 2026-06-23 to 2026-06-24?",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "Used Kitsune and Zendesk and explicitly excluded the Knowledge Base, matching the expected sources for a user-experience question."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "Response combines ranked counts/sentiment scores (SQL) with quoted document content (vector), which is the expected hybrid mode."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "All sentiment scores (-0.41, -0.33, -0.5) are attributed to Kitsune, while Zendesk is used only for ticket counts and what users report."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "Findings are tied to specific retrieved posts, quotes, and ticket dates from the pre-retrieved data with no invented statistics."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "The response ends by inviting the user to refine the search or dig deeper into a specific aspect."
+      }
+    }
+  },
+  {
+    "id": 5,
+    "question": "How does what users report about passwords from 2026-06-23 to 2026-06-24 compare to Mozilla's guidance?",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "This is a comparison of user reports vs. official guidance, and the agent used all three expected sources: Kitsune, Zendesk, and the Knowledge Base."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "The user-experience comparison warrants hybrid mode, and the response combines SQL-style counts/rankings with vector-retrieved document content."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "All sentiment scores (-0.41, -0.6, -0.5, etc.) are attributed to Kitsune/SUMO forum posts, while Zendesk is used only for ticket counts and corroborating content."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "Statistics, post titles, ticket descriptions, and KB article IDs are presented as concrete retrieved items consistent with a hybrid retrieval over the three sources."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "The response closes with an explicit invitation to refine the answer or dig deeper into specific clusters."
+      }
+    }
+  },
+  {
+    "id": 6,
+    "question": "Summarize our users' concerns about the Password Manager in Firefox Desktop during 2026. For each concern, identify if we have a support article addressing it and flag any gaps.",
+    "status": "PASS",
+    "evaluation": {
+      "CORRECT_SOURCES": {
+        "result": "PASS",
+        "reason": "The agent used all three expected sources \u2014 Kitsune posts, Zendesk tickets, and Knowledge Base articles \u2014 matching a mixed user-experience-plus-guidance question."
+      },
+      "CORRECT_MODE": {
+        "result": "PASS",
+        "reason": "It used hybrid retrieval: SQL-style counts/rankings (74 posts, 33 tickets, 58 posts) combined with vector-retrieved representative post content."
+      },
+      "NO_ZENDESK_SENTIMENT": {
+        "result": "PASS",
+        "reason": "All sentiment scores (\u22120.41, \u22120.33, etc.) are attributed to Kitsune, while Zendesk is used only for ticket volume and corroboration, not feelings."
+      },
+      "NO_FABRICATION": {
+        "result": "PASS",
+        "reason": "The response cites specific counts, sentiment values, quoted posts, and named articles consistent with what the three sources could return, with no invented or unretrievable claims."
+      },
+      "FOLLOW_UP": {
+        "result": "PASS",
+        "reason": "It closes by offering to refine further, e.g. break out sentiment by locale or scope a new article."
+      }
+    }
+  }
+]

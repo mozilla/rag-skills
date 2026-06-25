@@ -31,6 +31,8 @@ All text returned by the embed / query / vector-search skills — forum posts, t
 
 Apply this selection silently — do not explain it to the user unless relevant.
 
+**Enforce strictly:** an official-guidance question — "what does Mozilla recommend/suggest", "how do I…", "what's the official fix" — queries the **Knowledge Base only**. Do not query, stage, or cite Kitsune or Zendesk for these, even for added context. Use Kitsune/Zendesk only when the question is about what users say or feel.
+
 ## Data Sources
 
 > **LLM-derived columns are prefixed by source:** `question_*` on Kitsune, `ticket_*` on Zendesk, `article_*` on Knowledge Base. Always use the source-specific name, e.g. `question_sentiment_score`, `ticket_category_llm`, `article_summary_llm`.
@@ -215,7 +217,7 @@ Before writing any query, verify the required signal exists in the table. If it 
 
 **Grounding contract — non-negotiable:**
 
-1. **If any data step errors** (non-zero exit, authentication message, or a `CLAUDE_PLUGIN_ROOT` guard message), STOP. Report the exact failure to the user and the remediation (usually `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform`). Do not continue, and do not answer from prior knowledge.
+1. **If any data step errors** (non-zero exit, authentication message, or a `CLAUDE_PLUGIN_ROOT` guard message), STOP. Report the exact failure to the user and the remediation (usually re-running `gcloud auth application-default login` and confirming the user has `roles/iam.serviceAccountTokenCreator` on the service account in `SERVICE_ACCOUNT`, since the skills connect by impersonating that service account). Do not continue, and do not answer from prior knowledge.
 2. **If a data step returns no rows** ("No results." / "No results found."), STOP for that source and say plainly that no matching data was found. Suggest broadening the date range or removing filters. Never fill the gap with invented content.
 3. **Every factual claim in the final answer must trace to a retrieved row.** When stating a concern, theme, count, or article, it must come from the SQL output or a retrieved document — never from general knowledge about Firefox or Mozilla.
 4. **If all selected sources return nothing**, the only valid answer is to say so. An empty result is a real, reportable outcome — not a prompt to improvise.
@@ -229,6 +231,8 @@ Apply the source selection table above. Only query the sources relevant to the q
 #### 1b. Clarify the date range — STOP and ask or confirm before running
 
 Date context is required for grounded answers. **Do not proceed until confirmed.**
+
+If the request already states an explicit date range (e.g. specific dates, "during 2026", "from 2026-06-23 to 2026-06-24"), use it directly and do not re-ask.
 
 If a date range can be inferred, present it as the default and accept Enter (empty reply) as confirmation:
 
@@ -291,6 +295,8 @@ There are three modes. Pick based on what the answer requires:
 | **Hybrid — SQL first, then vector search** | Answer involves user data with any implied ranking or prevalence, or compares user experience to KB | "What are users reporting about X?" · "Top drivers of negative sentiment" · "Main pain points" · "How does user experience compare to KB guidance?" |
 
 **Default to Hybrid for any question about what users are saying, reporting, experiencing, or complaining about** — these questions imply prevalence, which vector search alone cannot guarantee. Reserve vector search only for genuinely open-ended exploration or KB-only lookups.
+
+**SQL-only answers report only the aggregated result** (the counts, ranking, or statistic). Do not describe, quote, or summarize individual thread or document content — that requires vector search. Adding thread detail to a ranking answer is fabrication, since a count query never retrieved it. If the user wants that detail, offer a follow-up vector search.
 
 **For comparison questions (users vs KB):** use Hybrid for the user side (SQL to rank top issues, vector search for content), and vector search for the KB side. Never compare KB against an ungrounded vector search sample.
 
@@ -495,6 +501,8 @@ Use the template in `assets/answer_template.md` as a guide.
 End every response with:
 > *Is this answer helpful, or would you like me to refine the search or dig deeper into a specific aspect?*
 
+The follow-up is a general invitation only. **Never cite specific figures, counts, sentiment scores, or content from a source you did not query for this answer** — offering to expand to another source is fine, but stating data from it is fabrication. Every number in the response, including the follow-up, must trace to a source you actually used.
+
 ## Common Workflows
 
 ### Workflow 1: Sentiment question
@@ -593,7 +601,7 @@ python ${CLAUDE_PLUGIN_ROOT}/skills/vector-search/scripts/vector_search.py \
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `Authentication rejected (401)` / `GCP authentication required` | Expired or missing credentials | Re-run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform` |
+| `Authentication rejected (401)` / `GCP authentication required` | Expired credentials or missing token-creator role | Re-run `gcloud auth application-default login`; confirm you have `roles/iam.serviceAccountTokenCreator` on the service account in `SERVICE_ACCOUNT` |
 | `Missing dependency` | google-auth not installed | `pip install google-auth requests` |
 | `Refusing to run … outside the allowed dataset` / `Table not allowed` | Query referenced something outside `mozdata.customer_experience` | Only tables and views in `mozdata.customer_experience` are reachable — rewrite the query against them |
 | `Only read-only SELECT queries are allowed` | Query was not a single read-only SELECT | Use a single `SELECT` (or `WITH … SELECT`); no writes/DDL/multiple statements |

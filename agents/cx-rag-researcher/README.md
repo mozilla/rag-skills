@@ -9,9 +9,9 @@ Before using this agent you need:
 1. **Google Cloud SDK** installed — [install gcloud](https://cloud.google.com/sdk/docs/install)
 2. **Authenticated** with application-default credentials:
    ```bash
-   gcloud auth application-default login \
-     --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform
+   gcloud auth application-default login
    ```
+   The skills connect using a service account: your authenticated credentials are only used to create a new and temporary access token on behalf of the service account defined in each script's `SERVICE_ACCOUNT` constant, which requires the `roles/iam.serviceAccountTokenCreator` role on it. Read-only BigQuery / `cloud-platform` (Vertex AI) scopes are enforced on the impersonated token in code, so your login no longer needs `--scopes`.
 3. **GCP project set** to mozdata:
    ```bash
    gcloud config set project mozdata
@@ -95,7 +95,7 @@ Scope your question naturally — the agent parses filters silently.
 
 | Symptom | Fix |
 |---------|-----|
-| `Authentication rejected (401)` | Re-run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform` |
+| `Authentication rejected (401)` | Re-run `gcloud auth application-default login`; confirm you have `roles/iam.serviceAccountTokenCreator` on the service account in `SERVICE_ACCOUNT` |
 | `No GCP project configured` | Run `gcloud config set project <project-name-from-DE>` |
 | Answer says "no results found" | Broaden the date range, remove product/locale filters, or rephrase |
 | Answer feels thin | Ask to broaden the date range or increase the result count |

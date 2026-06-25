@@ -27,18 +27,18 @@ Output is a JSON array of 3072 floats printed to stdout:
 
 ## Authentication
 
-This skill calls Vertex AI, which requires the `cloud-platform` scope:
+This skill connects to Vertex AI using a service account — the `cloud-platform` scope is enforced on the impersonated token in code. Just log in:
 
 ```bash
-gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform
+gcloud auth application-default login
 ```
 
-(If you also use the `query` / `vector-search` skills in the same session, authenticate once with both scopes: `--scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform`.)
+Your authenticated Google Cloud credentials are only used to create a new and temporary access token on behalf of the service account defined in `SERVICE_ACCOUNT`, which requires the `roles/iam.serviceAccountTokenCreator` role on that service account. Your login no longer needs `--scopes`.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `GCP authentication required` / `API error 401` | Run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform` |
+| `GCP authentication required` / `API error 401` | Re-run `gcloud auth application-default login`; confirm you have `roles/iam.serviceAccountTokenCreator` on the service account in `SERVICE_ACCOUNT` |
 | `Missing dependency` | `pip install google-auth requests` |
 | `Unexpected response from Vertex AI` | Confirm Vertex AI is enabled in project `mozdata` and the embedding model is available |

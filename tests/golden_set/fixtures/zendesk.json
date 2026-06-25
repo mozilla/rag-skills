@@ -1,0 +1,11 @@
+{
+  "sql_ranking": [
+    {"ticket_category_llm": "password-manager", "tickets": 33},
+    {"ticket_category_llm": "sync", "tickets": 21},
+    {"ticket_category_llm": "account", "tickets": 14}
+  ],
+  "documents": [
+    {"ticket_summary_llm": "User locked out after the Password Manager lost saved logins on Firefox Desktop.", "product": "Firefox Desktop", "creation_date": "2026-06-23"},
+    {"ticket_summary_llm": "Sync not transferring passwords between devices for a Spanish-speaking user.", "product": "Firefox", "creation_date": "2026-06-24"}
+  ]
+}

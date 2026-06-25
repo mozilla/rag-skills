@@ -19,8 +19,10 @@ Usage:
 
 Prerequisites:
     Python packages: google-auth, requests  ->  pip install google-auth requests
-    Application Default Credentials, set up once with:
-        gcloud auth application-default login
+    The Google Cloud account currently authenticated via `gcloud auth application-default
+    login` is used only to impersonate the service account defined in SERVICE_ACCOUNT and
+    requires the roles/iam.serviceAccountTokenCreator role on that service account. Using
+    the service account enforces a read only limited access.
 
     Authentication is delegated to the google-auth library: it loads and refreshes
     the credentials and attaches them to each request. This script never invokes
@@ -31,13 +33,23 @@ import argparse
 import re
 import sys
 
-# The only project / dataset this skill may ever touch. Any table or view inside
-# this dataset is allowed; anything outside it is rejected.
+# Data boundary: the only project / dataset this skill may ever READ. Any table or
+# view inside this dataset is allowed; anything outside it is rejected.
 PROJECT = "mozdata"
 DATASET = "customer_experience"
 
+# Compute / billing project: query jobs are created and billed here (the service
+# account's bigquery.jobUser role lives in this project). Data is still read
+# exclusively from PROJECT.DATASET above, cross-project into mozdata.
+JOB_PROJECT = "moz-fx-data-proto"
+
 # Least-privilege scope: read-only BigQuery access (no write/DDL at the token level).
 SCOPES = ["https://www.googleapis.com/auth/bigquery.readonly"]
+
+# This skill connects to BigQuery using a service account.
+# Your own BigQuery credentials are only used to create a new and temporary read-only
+# access token on behalf of the service account.
+SERVICE_ACCOUNT = "bq-dev-sandbox@moz-fx-data-proto.iam.gserviceaccount.com"
 
 # Cost / size guards. maximumBytesBilled makes BigQuery cancel (and not bill) any
 # query that would scan more than this, capping runaway-cost scans. maxResults
@@ -96,15 +108,16 @@ def out_of_scope_tables(referenced: list[dict]) -> list[str]:
 
 
 def get_auth() -> "object":
-    """Return an authorized HTTP session.
+    """Return an authorized HTTP session that impersonates a service account.
 
-    Authentication uses Application Default Credentials via google-auth: the
-    returned session signs each request internally. This never invokes
-    `print-access-token` and never reads, prints, or stores an access token.
-    Authenticate once with: gcloud auth application-default login
+    Your Application Default Credentials are used only to mint a short-lived,
+    read-only access token for the service account defined in SERVICE_ACCOUNT; every
+    request is signed with that token, so BigQuery is reached as the service
+    account, not as you. No token is ever read, printed, or stored.
     """
     try:
         import google.auth
+        from google.auth import impersonated_credentials
         from google.auth.exceptions import DefaultCredentialsError
         from google.auth.transport.requests import AuthorizedSession
     except ImportError:
@@ -112,11 +125,16 @@ def get_auth() -> "object":
         sys.exit(1)
 
     try:
-        credentials, _ = google.auth.default(scopes=SCOPES)
+        source, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     except DefaultCredentialsError:
         print("GCP authentication required. Run: gcloud auth application-default login", file=sys.stderr)
         sys.exit(1)
 
+    credentials = impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=SERVICE_ACCOUNT,
+        target_scopes=SCOPES,
+    )
     return AuthorizedSession(credentials)
 
 
@@ -148,7 +166,7 @@ def assert_query_in_scope(sql: str, session) -> None:
     This is the authoritative dataset boundary: BigQuery, not this script, resolves
     every referenced table, so comma joins, subqueries, CTEs, wildcards, and views
     are all covered."""
-    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{JOB_PROJECT}/queries"
     resp = _request(session, url, {
         "query": sql,
         "useLegacySql": False,
@@ -175,7 +193,7 @@ def assert_query_in_scope(sql: str, session) -> None:
 
 def run_query(sql: str, session) -> list[dict]:
     assert_query_in_scope(sql, session)
-    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}/queries"
+    url = f"https://bigquery.googleapis.com/bigquery/v2/projects/{JOB_PROJECT}/queries"
     resp = _request(session, url, {
         "query": sql,
         "useLegacySql": False,
@@ -187,7 +205,7 @@ def run_query(sql: str, session) -> list[dict]:
         job_id = resp["jobReference"]["jobId"]
         resp = _request(
             session,
-            f"https://bigquery.googleapis.com/bigquery/v2/projects/{PROJECT}"
+            f"https://bigquery.googleapis.com/bigquery/v2/projects/{JOB_PROJECT}"
             f"/queries/{job_id}?timeoutMs=30000",
         )
     fields = resp.get("schema", {}).get("fields", [])

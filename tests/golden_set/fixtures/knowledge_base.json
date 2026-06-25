@@ -1,0 +1,6 @@
+{
+  "documents": [
+    {"title": "Manage passwords in Firefox", "article_summary_llm": "How to view, edit, remove, and recover saved passwords using the Firefox Password Manager.", "slug": "password-manager-manage", "products": "/firefox/"},
+    {"title": "Fix Firefox Sync problems", "article_summary_llm": "Steps to resolve Firefox Sync sign-in failures and devices not syncing.", "slug": "sync-troubleshooting", "products": "/firefox/"}
+  ]
+}

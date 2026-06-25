@@ -21,15 +21,14 @@ pip install google-auth requests
 
 **2. GCP command-line tools.** Set up GCP command line tools, as described on [docs.telemetry.mozilla.org](https://docs.telemetry.mozilla.org/cookbooks/bigquery/access.html#using-the-bq-command-line-tool).
 
-**3. Application Default Credentials.** Authenticate with the scopes the skills need — read-only BigQuery for `query`/`vector-search`, and `cloud-platform` for `embed` (Vertex AI):
-
-> ⚠️ The `bigquery.readonly` scope keeps the BigQuery token read-only to reduce risk of modifying or deleting data.
-> The `embed` skill needs the `cloud-platform` scope for Vertex AI to be provisioned via IAM roles scoped to `mozdata.customer_experience`.
+**3. Authenticate (service-account impersonation).** Log in with Application Default Credentials — that's all you set up:
 
 ```bash
-gcloud auth application-default login \
-  --scopes=https://www.googleapis.com/auth/bigquery.readonly,https://www.googleapis.com/auth/cloud-platform
+gcloud auth application-default login
 ```
+
+> ⚠️ The skills connect using a service account: your authenticated Google Cloud credentials are only used to create a new and temporary access token on behalf of the service account defined in each script's `SERVICE_ACCOUNT` constant, which requires the `roles/iam.serviceAccountTokenCreator` role on that service account.
+> Read-only BigQuery (for `query`/`vector-search`) and `cloud-platform` (for `embed`'s Vertex AI) scopes are enforced on the impersonated token in code — which is why your login no longer needs `--scopes`.
 
 The agent may only query **project `mozdata`, dataset `customer_experience`** — any table or view in that dataset, and nothing outside it. The boundary is enforced by asking BigQuery (via a dry run) which tables each query actually reads, so it cannot be evaded by SQL the scripts don't parse.
 
