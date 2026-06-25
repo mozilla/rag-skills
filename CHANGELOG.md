@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0] - 2026-06-25
+
+### Security
+- Service-account impersonation: `query`, `vector-search`, and `embed` now reach BigQuery and Vertex AI by impersonating a dedicated read-only service account. The logged-in user's own credentials are used only to create a short-lived token to act as that service account (which requires the `roles/iam.serviceAccountTokenCreator` role on it), enforcing read-only, limited access. Query jobs are billed to a separate compute project, while data is still read only from `mozdata.customer_experience`.
+
+### Changed
+- `cx-rag-researcher` agent instructions:
+  - Authentication-failure guidance now points to re-running `gcloud auth application-default login` and confirming the token-creator role on the service account.
+  - Official-guidance questions ("what does Mozilla recommend") now query the Knowledge Base only.
+  - Ranking/count answers report only the aggregated result, never individual thread or document content.
+  - No response (including the closing follow-up) may cite figures or content from a source it did not query.
+  - An explicitly provided date range is used directly, without asking again.
+- Golden-set evaluation now runs fully mocked: no live BigQuery, no command execution, and no permissions granted. Each question is answered over fixture data limited to its expected sources and mode, so correct behavior passes while real regressions are still caught.
+
+### Added
+- Fixture data for the mocked golden-set evaluation.
+
 ## [1.1.0] - 2026-06-19
 
 ### Security
