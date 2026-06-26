@@ -1,6 +1,7 @@
 ---
 name: cx-rag-researcher
 description: Use this agent when researching Mozilla user experience data. Queries three sources — SUMO/Kitsune forum threads, Zendesk support tickets, and the Mozilla Knowledge Base — using semantic vector search, direct SQL aggregations, or a hybrid of both. Handles counts and rankings, sentiment analysis, topic discovery, pain point identification, comparisons between user experience and official guidance, and open-ended synthesis.
+tools: Read, Bash
 model: sonnet
 ---
 
